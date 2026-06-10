@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>P2P wire decoder — Bitcoin Schema</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de;
+    --fg: #1f2328; --muted: #57606a; --accent: #e8830c; --link: #0969da;
+    --ok: #1a7f37; --bad: #cf222e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .2rem; } h1 span { color: var(--accent); }
+  p.tag { color: var(--muted); margin: 0 0 1.2rem; }
+  a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
+  textarea { width: 100%; height: 8rem; background: var(--panel); color: var(--fg);
+             border: 1px solid var(--border); border-radius: 8px; padding: .8rem;
+             font: 12.5px var(--mono); resize: vertical; }
+  button { background: var(--accent); color: #fff; font-weight: 600; border: none;
+           border-radius: 8px; padding: .55rem 1.4rem; margin-top: .6rem; cursor: pointer; font-size: 1rem; }
+  button:hover { filter: brightness(1.1); }
+  .error { color: var(--bad); font-family: var(--mono); margin-top: .8rem; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+          padding: .9rem 1.2rem; margin-top: 1rem; }
+  .card h2 { font-size: 1.05rem; margin: 0; font-family: var(--mono); }
+  .card h2 .badge { font: 11px var(--mono); border: 1px solid var(--border); border-radius: 999px;
+          padding: 0 .55em; margin-left: .6em; color: var(--muted); background: var(--bg); font-weight: 400; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); font-weight: 700; }
+  pre { font: 12px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+        margin: .5rem 0 0; color: var(--fg); max-height: 18rem; overflow-y: auto; }
+  .note { color: var(--muted); font-size: .85rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>P2P wire <span>decoder</span></h1>
+  <p class="tag">Paste a raw Bitcoin P2P byte stream. Each message's envelope is checked
+     (magic, checksum) and its payload decoded by the
+     <a href="../schema/p2p.jsonld">p2p schema</a> — <code>tx</code>, <code>block</code>, and
+     <code>merkleblock</code> payloads are the core/proof structs unchanged.
+     Prefilled with a <b>real mainnet handshake</b> our engine performed over TCP.
+     · <a href="../index.html">schema</a></p>
+  <textarea id="hex" spellcheck="false" placeholder="raw p2p stream hex…"></textarea>
+  <br><button id="go">Decode stream</button>
+  <div id="out"></div>
+</div>
+<script type="module">
+  import { Codec } from '../codec/codec.js';
+  import { P2pEngine } from '../codec/p2p.js';
+
+  const $ = (id) => document.getElementById(id);
+  const load = async (p) => (await fetch(p)).json();
+  const p2pSchema = await load('../schema/p2p.jsonld');
+  const codec = new Codec(await load('../schema/core.jsonld'), await load('../schema/proof.jsonld'), p2pSchema);
+  const engine = P2pEngine.fromSchemas(codec, p2pSchema, await load('../schema/chain.jsonld'));
+
+  const vector = await load('../test/vectors/p2p-handshake.json');
+  $('hex').value = vector.streamHex;
+
+  function run() {
+    const out = $('out');
+    out.innerHTML = '';
+    try {
+      const { messages, remainder } = engine.decodeStream($('hex').value.trim().toLowerCase());
+      out.innerHTML = messages.map((m) => `
+        <div class="card">
+          <h2>${m.command}
+            <span class="badge">${m.length} bytes</span>
+            <span class="badge ${m.magicOk ? 'ok' : 'bad'}">magic ${m.magicOk ? '✓' : '✗'}</span>
+            <span class="badge ${m.checksumOk ? 'ok' : 'bad'}">checksum ${m.checksumOk ? '✓' : '✗'}</span>
+            ${m.known ? '' : '<span class="badge bad">unknown command</span>'}
+          </h2>
+          ${m.payload != null ? `<pre>${
+            (typeof m.payload === 'string' ? m.payload
+              : JSON.stringify(m.payload, null, 2)).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          }</pre>` : '<pre style="color:var(--muted)">(empty payload)</pre>'}
+        </div>`).join('')
+        + (remainder ? `<p class="note">⚠ ${remainder} trailing bytes are a partial message.</p>` : '')
+        + `<p class="note">${vector.comment}</p>`;
+    } catch (e) {
+      out.innerHTML = `<div class="error">✖ ${e.message}</div>`;
+    }
+  }
+  $('go').addEventListener('click', run);
+  run();
+</script>
+</body>
+</html>

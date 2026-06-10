@@ -34,6 +34,11 @@ class Reader {
   }
   u8() { return this.take(1)[0]; }
   u16le() { const v = this.dv.getUint16(this.pos, true); this.pos += 2; return v; }
+  u16be() { const v = this.dv.getUint16(this.pos, false); this.pos += 2; return v; }
+  u64le() {
+    const v = this.dv.getBigUint64(this.pos, true); this.pos += 8;
+    return v <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(v) : v.toString();
+  }
   u32le() { const v = this.dv.getUint32(this.pos, true); this.pos += 4; return v; }
   i32le() { const v = this.dv.getInt32(this.pos, true); this.pos += 4; return v; }
   i64le() { const v = this.dv.getBigInt64(this.pos, true); this.pos += 8; return Number(v); }
@@ -52,6 +57,8 @@ class Writer {
   bytes(b) { this.chunks.push(b); }
   u8(v) { this.bytes(Uint8Array.of(v)); }
   u16le(v) { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, v, true); this.bytes(b); }
+  u16be(v) { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, v, false); this.bytes(b); }
+  u64le(v) { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(v), true); this.bytes(b); }
   u32le(v) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v, true); this.bytes(b); }
   i32le(v) { const b = new Uint8Array(4); new DataView(b.buffer).setInt32(0, v, true); this.bytes(b); }
   i64le(v) { const b = new Uint8Array(8); new DataView(b.buffer).setBigInt64(0, BigInt(v), true); this.bytes(b); }
@@ -105,6 +112,7 @@ export class Codec {
         if (segwit === null) segwit = r.peek() === 0x00;
         if (!segwit) continue;
       }
+      if (f.optionalTrailing && r.pos >= r.bytes.length) continue;
       const v = this.#readField(f, r, obj);
       if (f.constValue !== undefined) {
         if (v !== f.constValue) throw new Error(`${typeName}.${f.label}: expected ${f.constValue}, got ${v}`);
@@ -119,12 +127,22 @@ export class Codec {
     switch (f.wireType) {
       case 'u8': return r.u8();
       case 'u16le': return r.u16le();
+      case 'u16be': return r.u16be();
       case 'u32le': return r.u32le();
       case 'i32le': return r.i32le();
       case 'i64le': return r.i64le();
+      case 'u64le': return r.u64le();
       case 'varint': return r.varint();
       case 'hash256': return reverseHex(r.take(32));
       case 'varbytes': return bytesToHex(r.take(r.varint()));
+      case 'bytes': return bytesToHex(r.take(f.wireSize));
+      case 'ascii': {
+        const raw = r.take(f.wireSize);
+        let end = raw.length;
+        while (end > 0 && raw[end - 1] === 0) end--;
+        return new TextDecoder().decode(raw.subarray(0, end));
+      }
+      case 'varstr': return new TextDecoder().decode(r.take(r.varint()));
       case 'struct': return this.#readStruct(shortId(f.structType), r);
       case 'vec': {
         const n = r.varint();
@@ -167,6 +185,7 @@ export class Codec {
     const segwit = !opts.legacy && Array.isArray(obj.witness) && obj.witness.some((s) => s.length > 0);
     for (const f of def.fields) {
       if (f.presentIf === 'segwit' && !segwit) continue;
+      if (f.optionalTrailing && obj[f.label] === undefined) continue;
       this.#writeField(f, f.constValue !== undefined ? f.constValue : obj[f.label], w);
     }
   }
@@ -175,11 +194,28 @@ export class Codec {
     switch (f.wireType) {
       case 'u8': return w.u8(v);
       case 'u16le': return w.u16le(v);
+      case 'u16be': return w.u16be(v);
       case 'u32le': return w.u32le(v);
       case 'i32le': return w.i32le(v);
       case 'i64le': return w.i64le(v);
+      case 'u64le': return w.u64le(v);
       case 'varint': return w.varint(v);
       case 'hash256': return w.bytes(hexToBytes(v).reverse());
+      case 'bytes': {
+        const b = hexToBytes(v);
+        if (b.length !== f.wireSize) throw new Error(`${f.label}: expected ${f.wireSize} bytes`);
+        return w.bytes(b);
+      }
+      case 'ascii': {
+        const b = new Uint8Array(f.wireSize);
+        b.set(new TextEncoder().encode(v).subarray(0, f.wireSize));
+        return w.bytes(b);
+      }
+      case 'varstr': {
+        const b = new TextEncoder().encode(v);
+        w.varint(b.length);
+        return w.bytes(b);
+      }
       case 'varbytes': { const b = hexToBytes(v); w.varint(b.length); return w.bytes(b); }
       case 'struct': return this.#writeStruct(shortId(f.structType), v, w);
       case 'vec': {
