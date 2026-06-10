@@ -200,3 +200,87 @@ export function taggedHash(tag, ...chunks) {
   for (const c of chunks) { buf.set(c, p); p += c.length; }
   return sha256(buf);
 }
+
+// ---- SHA-512 + HMAC-SHA512 (BIP 32 key derivation) ----
+// Round constants are the fractional parts of cube/square roots of the
+// first primes — generated here with integer Newton iterations rather
+// than hardcoding 80 magic numbers.
+const M64 = (1n << 64n) - 1n;
+
+function primes(n) {
+  const out = [];
+  for (let c = 2; out.length < n; c++) {
+    if (out.every((p) => c % p)) out.push(c);
+  }
+  return out;
+}
+function isqrt(n) {
+  let x = n, y = (x + 1n) >> 1n;
+  while (y < x) { x = y; y = (x + n / x) >> 1n; }
+  return x;
+}
+function icbrt(n) {
+  let x = 1n << BigInt(Math.ceil(n.toString(2).length / 3) + 1);
+  for (;;) {
+    const y = (2n * x + n / (x * x)) / 3n;
+    if (y >= x) return x;
+    x = y;
+  }
+}
+const P80 = primes(80).map(BigInt);
+const K512 = P80.map((p) => icbrt(p << 192n) & M64);
+const H512 = P80.slice(0, 8).map((p) => isqrt(p << 128n) & M64);
+
+const rotr64 = (x, n) => ((x >> n) | (x << (64n - n))) & M64;
+
+export function sha512(data) {
+  const len = data.length;
+  const padded = new Uint8Array((((len + 16) >> 7) + 1) << 7);
+  padded.set(data);
+  padded[len] = 0x80;
+  const dv = new DataView(padded.buffer);
+  const bitLen = BigInt(len) * 8n;
+  dv.setBigUint64(padded.length - 8, bitLen & M64);
+  dv.setBigUint64(padded.length - 16, bitLen >> 64n);
+
+  const h = [...H512];
+  const w = new Array(80);
+  for (let off = 0; off < padded.length; off += 128) {
+    for (let i = 0; i < 16; i++) w[i] = dv.getBigUint64(off + i * 8);
+    for (let i = 16; i < 80; i++) {
+      const s0 = rotr64(w[i - 15], 1n) ^ rotr64(w[i - 15], 8n) ^ (w[i - 15] >> 7n);
+      const s1 = rotr64(w[i - 2], 19n) ^ rotr64(w[i - 2], 61n) ^ (w[i - 2] >> 6n);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) & M64;
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let i = 0; i < 80; i++) {
+      const S1 = rotr64(e, 14n) ^ rotr64(e, 18n) ^ rotr64(e, 41n);
+      const ch = (e & f) ^ (~e & g & M64);
+      const t1 = (hh + S1 + ch + K512[i] + w[i]) & M64;
+      const S0 = rotr64(a, 28n) ^ rotr64(a, 34n) ^ rotr64(a, 39n);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (S0 + maj) & M64;
+      hh = g; g = f; f = e; e = (d + t1) & M64;
+      d = c; c = b; b = a; a = (t1 + t2) & M64;
+    }
+    h[0] = (h[0] + a) & M64; h[1] = (h[1] + b) & M64; h[2] = (h[2] + c) & M64; h[3] = (h[3] + d) & M64;
+    h[4] = (h[4] + e) & M64; h[5] = (h[5] + f) & M64; h[6] = (h[6] + g) & M64; h[7] = (h[7] + hh) & M64;
+  }
+  const out = new Uint8Array(64);
+  const ov = new DataView(out.buffer);
+  for (let i = 0; i < 8; i++) ov.setBigUint64(i * 8, h[i]);
+  return out;
+}
+
+export function hmacSha512(key, data) {
+  if (key.length > 128) key = sha512(key);
+  const ipad = new Uint8Array(128 + data.length);
+  const opad = new Uint8Array(128 + 64);
+  for (let i = 0; i < 128; i++) {
+    ipad[i] = (key[i] ?? 0) ^ 0x36;
+    opad[i] = (key[i] ?? 0) ^ 0x5c;
+  }
+  ipad.set(data, 128);
+  opad.set(sha512(ipad), 128);
+  return sha512(opad);
+}

@@ -1,0 +1,234 @@
+{
+  "@context": "../context.jsonld",
+  "@graph": [
+    {
+      "@id": "btc:wallet",
+      "@type": "Module",
+      "label": "wallet",
+      "version": "0.0.11",
+      "comment": "The wallet layer, watch-only by design: hierarchical public-key derivation, partially-signed transactions, and payment requests. No private keys exist anywhere in this model \u2014 it derives, parses, and verifies; it never signs.",
+      "layer": "context"
+    },
+    {
+      "@id": "btc:ExtendedKey",
+      "@type": "ContextStruct",
+      "module": "btc:wallet",
+      "label": "ExtendedKey",
+      "bip": 32,
+      "comment": "A BIP 32 extended public key (xpub): a public key plus a chain code, from which unhardened child keys derive publicly. Serialized as 78 bytes in Base58Check.",
+      "fields": [
+        {
+          "property": "btc:xkeyVersion",
+          "label": "version",
+          "valueType": "u32",
+          "comment": "Serialization version: 0x0488b21e for a mainnet xpub."
+        },
+        {
+          "property": "btc:depth",
+          "label": "depth",
+          "valueType": "u8",
+          "comment": "Derivation depth from the master key."
+        },
+        {
+          "property": "btc:parentFingerprint",
+          "label": "parentFingerprint",
+          "valueType": "hex",
+          "comment": "First four bytes of hash160(parent public key)."
+        },
+        {
+          "property": "btc:childNumber",
+          "label": "childNumber",
+          "valueType": "u32",
+          "comment": "Index this key was derived at (>= 2^31 means hardened)."
+        },
+        {
+          "property": "btc:chainCode",
+          "label": "chainCode",
+          "valueType": "hex",
+          "comment": "32 bytes of derivation entropy, fed to HMAC-SHA512 with the key."
+        },
+        {
+          "property": "btc:publicKey",
+          "label": "publicKey",
+          "valueType": "hex",
+          "comment": "33-byte compressed public key."
+        }
+      ]
+    },
+    {
+      "@id": "btc:PaymentRequest",
+      "@type": "ContextStruct",
+      "module": "btc:wallet",
+      "label": "PaymentRequest",
+      "bip": 21,
+      "comment": "A bitcoin: payment URI.",
+      "fields": [
+        {
+          "property": "btc:address",
+          "label": "address",
+          "valueType": "string",
+          "comment": "Destination address."
+        },
+        {
+          "property": "btc:amountSats",
+          "label": "amountSats",
+          "valueType": "i64",
+          "comment": "Requested amount (the URI carries BTC; modeled in satoshis)."
+        },
+        {
+          "property": "btc:label",
+          "label": "label",
+          "valueType": "string",
+          "comment": "Label for the recipient."
+        },
+        {
+          "property": "btc:message",
+          "label": "message",
+          "valueType": "string",
+          "comment": "Message for the payer."
+        }
+      ]
+    },
+    {
+      "@id": "btc:PsbtGlobalType",
+      "@type": "Enumeration",
+      "module": "btc:wallet",
+      "label": "PsbtGlobalType",
+      "bip": 174,
+      "comment": "Key types of a PSBT's global map. A PSBT is three runs of key-value maps (global, one per input, one per output), each terminated by an empty key.",
+      "members": [
+        {
+          "name": "PSBT_GLOBAL_UNSIGNED_TX",
+          "code": 0,
+          "comment": "The transaction being signed, serialized legacy with empty scriptSigs."
+        },
+        {
+          "name": "PSBT_GLOBAL_XPUB",
+          "code": 1,
+          "comment": "An xpub with its derivation path, for verifying change."
+        },
+        {
+          "name": "PSBT_GLOBAL_VERSION",
+          "code": 251,
+          "comment": "PSBT format version."
+        }
+      ]
+    },
+    {
+      "@id": "btc:PsbtInputType",
+      "@type": "Enumeration",
+      "module": "btc:wallet",
+      "label": "PsbtInputType",
+      "bip": 174,
+      "comment": "Key types of a PSBT input map.",
+      "members": [
+        {
+          "name": "PSBT_IN_NON_WITNESS_UTXO",
+          "code": 0,
+          "comment": "The full previous transaction."
+        },
+        {
+          "name": "PSBT_IN_WITNESS_UTXO",
+          "code": 1,
+          "comment": "Just the spent output (value + scriptPubKey)."
+        },
+        {
+          "name": "PSBT_IN_PARTIAL_SIG",
+          "code": 2,
+          "comment": "A signature keyed by its public key."
+        },
+        {
+          "name": "PSBT_IN_SIGHASH_TYPE",
+          "code": 3,
+          "comment": "Required sighash type."
+        },
+        {
+          "name": "PSBT_IN_REDEEM_SCRIPT",
+          "code": 4,
+          "comment": "P2SH redeem script."
+        },
+        {
+          "name": "PSBT_IN_WITNESS_SCRIPT",
+          "code": 5,
+          "comment": "P2WSH witness script."
+        },
+        {
+          "name": "PSBT_IN_BIP32_DERIVATION",
+          "code": 6,
+          "comment": "Derivation path keyed by public key."
+        },
+        {
+          "name": "PSBT_IN_FINAL_SCRIPTSIG",
+          "code": 7,
+          "comment": "Finalized scriptSig."
+        },
+        {
+          "name": "PSBT_IN_FINAL_SCRIPTWITNESS",
+          "code": 8,
+          "comment": "Finalized serialized witness stack."
+        },
+        {
+          "name": "PSBT_IN_TAP_KEY_SIG",
+          "code": 19,
+          "comment": "Taproot key-path signature.",
+          "bip": 371
+        },
+        {
+          "name": "PSBT_IN_TAP_LEAF_SCRIPT",
+          "code": 21,
+          "comment": "Taproot leaf script with its control block.",
+          "bip": 371
+        },
+        {
+          "name": "PSBT_IN_TAP_INTERNAL_KEY",
+          "code": 23,
+          "comment": "Taproot internal key.",
+          "bip": 371
+        },
+        {
+          "name": "PSBT_IN_TAP_MERKLE_ROOT",
+          "code": 24,
+          "comment": "Taproot merkle root.",
+          "bip": 371
+        }
+      ]
+    },
+    {
+      "@id": "btc:PsbtOutputType",
+      "@type": "Enumeration",
+      "module": "btc:wallet",
+      "label": "PsbtOutputType",
+      "bip": 174,
+      "comment": "Key types of a PSBT output map.",
+      "members": [
+        {
+          "name": "PSBT_OUT_REDEEM_SCRIPT",
+          "code": 0,
+          "comment": "P2SH redeem script."
+        },
+        {
+          "name": "PSBT_OUT_WITNESS_SCRIPT",
+          "code": 1,
+          "comment": "P2WSH witness script."
+        },
+        {
+          "name": "PSBT_OUT_BIP32_DERIVATION",
+          "code": 2,
+          "comment": "Derivation path keyed by public key (change verification)."
+        },
+        {
+          "name": "PSBT_OUT_TAP_INTERNAL_KEY",
+          "code": 5,
+          "comment": "Taproot internal key.",
+          "bip": 371
+        },
+        {
+          "name": "PSBT_OUT_TAP_TREE",
+          "code": 6,
+          "comment": "Taproot script tree.",
+          "bip": 371
+        }
+      ]
+    }
+  ]
+}

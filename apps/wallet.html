@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Watch-only wallet — Bitcoin Schema</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de;
+    --fg: #1f2328; --muted: #57606a; --accent: #e8830c; --link: #0969da;
+    --ok: #1a7f37; --bad: #cf222e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .2rem; } h1 span { color: var(--accent); }
+  h2.sec { font-size: 1.1rem; margin: 2rem 0 .4rem; color: var(--muted); font-family: var(--mono); }
+  p.tag { color: var(--muted); margin: 0 0 1rem; }
+  a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
+  input, select, textarea { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+          border-radius: 8px; padding: .5rem .7rem; font: 13px var(--mono); }
+  textarea { width: 100%; height: 7rem; background: var(--panel); resize: vertical; }
+  input#xpub { width: 100%; }
+  .row { display: flex; gap: .8rem; align-items: end; flex-wrap: wrap; margin-top: .6rem; }
+  .row label { font-size: .8rem; color: var(--muted); display: block; }
+  button { background: var(--accent); color: #fff; font-weight: 600; border: none;
+           border-radius: 8px; padding: .5rem 1.3rem; cursor: pointer; font-size: .95rem; }
+  button:hover { filter: brightness(1.1); }
+  .error { color: var(--bad); font-family: var(--mono); margin-top: .6rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .85rem; margin-top: .8rem; }
+  th, td { text-align: left; padding: .3rem .55rem; border-top: 1px solid var(--border); }
+  th { color: var(--muted); border-top: none; }
+  td.mono { font-family: var(--mono); overflow-wrap: anywhere; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+           padding: 1rem 1.2rem; margin-top: 1rem; }
+  .panel h3 { font-size: .95rem; margin: 0 0 .5rem; color: var(--muted); font-family: var(--mono); }
+  .y { color: var(--ok); } .n { color: var(--bad); font-weight: 700; } .s { color: var(--muted); }
+  .summary { margin-top: 1rem; padding: .8rem 1.1rem; border-radius: 10px; font-weight: 600; }
+  .summary.ok { background: #dafbe1; color: var(--ok); border: 1px solid #aceebb; }
+  .summary.bad { background: #ffebe9; color: var(--bad); border: 1px solid #ffcecb; }
+  .summary.info { background: var(--panel); color: var(--fg); border: 1px solid var(--border); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Watch-only <span>wallet</span></h1>
+  <p class="tag">BIP 32 public derivation and BIP 174 PSBTs — watch, decode, and <em>verify</em>;
+     never sign (no private keys exist in this codebase).
+     · <a href="../index.html">schema</a> · <a href="tx.html">tx decoder</a></p>
+
+  <h2 class="sec">xpub → addresses (BIP 32 / 84 / 86)</h2>
+  <input id="xpub" spellcheck="false" placeholder="xpub…">
+  <div class="row">
+    <div><label for="atype">address type</label>
+      <select id="atype"><option value="p2wpkh">p2wpkh (bc1q…)</option>
+      <option value="p2tr">p2tr (bc1p…, BIP 86)</option><option value="p2pkh">p2pkh (1…)</option></select></div>
+    <div><label for="branch">branch</label>
+      <select id="branch"><option value="0">0 (receive)</option><option value="1">1 (change)</option></select></div>
+    <div><label for="count">count</label><input id="count" value="10" style="width:5rem"></div>
+    <button id="derive">Derive</button>
+  </div>
+  <div id="xout"></div>
+
+  <h2 class="sec">PSBT decode &amp; verify (BIP 174)</h2>
+  <textarea id="psbt" spellcheck="false" placeholder="base64 or hex PSBT…"></textarea>
+  <div class="row"><button id="decode">Decode &amp; verify</button></div>
+  <div id="pout"></div>
+</div>
+<script type="module">
+  import { Codec } from '../codec/codec.js';
+  import { ScriptEngine } from '../codec/script.js';
+  import { ScriptInterpreter } from '../codec/interpreter.js';
+  import { Bip32, Psbt } from '../codec/wallet.js';
+
+  const $ = (id) => document.getElementById(id);
+  const load = async (p) => (await fetch(p)).json();
+  const codec = new Codec(await load('../schema/core.jsonld'));
+  const scriptSchema = await load('../schema/script.jsonld');
+  const chainSchema = await load('../schema/chain.jsonld');
+  const walletSchema = await load('../schema/wallet.jsonld');
+  const scripts = ScriptEngine.fromSchemas(scriptSchema, chainSchema);
+  const limits = scriptSchema['@graph'].find((n) => n['@id'] === 'btc:scriptLimits');
+  const interp = new ScriptInterpreter(codec, scripts, limits);
+
+  const KEY_LABELS = {};
+  for (const node of walletSchema['@graph']) {
+    if (node['@type'] !== 'Enumeration') continue;
+    const scope = node.label.replace('Psbt', '').replace('Type', '').toLowerCase();
+    KEY_LABELS[scope] = Object.fromEntries(node.members.map((m) => [m.code, m.name]));
+  }
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+  // prefill: the official BIP 86 account xpub and a finalized real-spend PSBT
+  $('xpub').value = (await load('../test/vectors/bip86.json')).accountXpub;
+  {
+    const tp = (await load('../test/vectors/taproot-spends.json')).spends.keypath;
+    const original = codec.decode('Transaction', tp.txHex);
+    const unsigned = { version: original.version, lockTime: original.lockTime,
+      inputs: original.inputs.map((i) => ({ ...i, scriptSig: '' })), outputs: original.outputs };
+    const wser = (stack) => stack.reduce((h, item) =>
+      h + (item.length / 2).toString(16).padStart(2, '0') + item,
+      stack.length.toString(16).padStart(2, '0'));
+    $('psbt').value = Psbt.toBase64({
+      global: [['00', codec.encodeHex('Transaction', unsigned, { legacy: true })]],
+      inputs: original.inputs.map((_, i) => [
+        ['01', codec.encodeHex('TransactionOutput', tp.prevouts[i])],
+        ['08', wser(original.witness[i])]]),
+      outputs: original.outputs.map(() => []),
+      tx: unsigned,
+    });
+  }
+
+  $('derive').addEventListener('click', () => {
+    const out = $('xout');
+    try {
+      const node = Bip32.decode($('xpub').value.trim());
+      if (!node) throw new Error('not a valid xpub (xprv is refused by design)');
+      const type = $('atype').value;
+      const branch = parseInt($('branch').value, 10);
+      const count = Math.min(parseInt($('count').value || '10', 10), 50);
+      const branchNode = Bip32.derive(node, branch);
+      const rows = Array.from({ length: count }, (_, i) => {
+        const child = Bip32.derive(branchNode, i);
+        const spk = Bip32.scriptPubKey(child, type);
+        return `<tr><td class="mono">${branch}/${i}</td>
+          <td class="mono">${scripts.classify(spk).address}</td>
+          <td class="mono" style="color:var(--muted)">${spk}</td></tr>`;
+      }).join('');
+      out.innerHTML = `<table><tr><th>path</th><th>address</th><th>scriptPubKey</th></tr>${rows}</table>`;
+    } catch (e) {
+      out.innerHTML = `<div class="error">✖ ${esc(e.message)}</div>`;
+    }
+  });
+
+  $('decode').addEventListener('click', () => {
+    const out = $('pout');
+    try {
+      const psbt = Psbt.parse($('psbt').value, codec);
+      const txid = codec.txid(psbt.tx);
+      const prevouts = psbt.tx.inputs.map((_, i) => { try { return Psbt.utxo(psbt, i, codec); } catch { return null; } });
+      const extracted = Psbt.extract(psbt, codec);
+
+      let verdictHtml = '';
+      if (extracted) {
+        const all = prevouts.every(Boolean) ? prevouts : null;
+        const results = psbt.tx.inputs.map((_, i) => prevouts[i]
+          ? interp.verifyInput(extracted, i, prevouts[i], all) : { ok: null, reason: 'no utxo data' });
+        const ok = results.every((r) => r.ok === true);
+        const bad = results.some((r) => r.ok === false);
+        verdictHtml = `<div class="summary ${bad ? 'bad' : ok ? 'ok' : 'info'}">
+          ${bad ? '✗ finalized, but a signature FAILED verification'
+            : ok ? `✓ finalized — every signature verified by the interpreter · final txid ${codec.txid(extracted)}`
+            : '◦ finalized; some inputs lack utxo data to verify against'}</div>
+          <table><tr><th>input</th><th>spend path</th><th>verification</th></tr>
+          ${results.map((r, i) => `<tr><td class="mono">#${i}</td><td class="mono">${r.type ?? '—'}</td>
+            <td class="${r.ok === true ? 'y' : r.ok === false ? 'n' : 's'}">${r.ok === true ? '✓ valid signature' : r.ok === false ? '✗ ' + esc(r.error) : '– ' + esc(r.reason ?? 'skipped')}</td></tr>`).join('')}
+          </table>`;
+      } else {
+        verdictHtml = '<div class="summary info">◦ not yet finalized — no final scriptSig/scriptWitness on every input</div>';
+      }
+
+      const mapTable = (pairs, scope) => pairs.length === 0
+        ? '<span class="s" style="font:12px var(--mono)">(empty)</span>'
+        : `<table><tr><th>key type</th><th>value</th></tr>${pairs.map(([k, v]) => `
+          <tr><td class="mono">${KEY_LABELS[scope]?.[parseInt(k.slice(0, 2), 16)] ?? '0x' + k}</td>
+              <td class="mono" style="color:var(--muted)">${esc(v.length > 120 ? v.slice(0, 120) + '…' : v)}</td></tr>`).join('')}</table>`;
+
+      out.innerHTML = `
+        ${verdictHtml}
+        <div class="panel"><h3>unsigned tx · txid ${txid} · ${psbt.tx.inputs.length} in / ${psbt.tx.outputs.length} out</h3>
+          ${mapTable(psbt.global, 'global')}</div>
+        ${psbt.inputs.map((m, i) => `<div class="panel"><h3>input #${i} ← ${psbt.tx.inputs[i].prevout.txid.slice(0, 16)}…:${psbt.tx.inputs[i].prevout.vout}${prevouts[i] ? ` · ${(prevouts[i].value / 1e8).toFixed(8)} BTC` : ''}</h3>${mapTable(m, 'input')}</div>`).join('')}
+        ${psbt.outputs.map((m, i) => `<div class="panel"><h3>output #${i} → ${scripts.classify(psbt.tx.outputs[i].scriptPubKey).address ?? scripts.classify(psbt.tx.outputs[i].scriptPubKey).type} · ${(psbt.tx.outputs[i].value / 1e8).toFixed(8)} BTC</h3>${mapTable(m, 'output')}</div>`).join('')}`;
+    } catch (e) {
+      out.innerHTML = `<div class="error">✖ ${esc(e.message)}</div>`;
+    }
+  });
+
+  $('derive').click();
+  $('decode').click();
+</script>
+</body>
+</html>
