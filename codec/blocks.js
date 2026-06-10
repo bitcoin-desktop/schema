@@ -11,7 +11,8 @@
 //
 // Out of scope, deliberately: witness/signature script execution.
 
-import { dsha256, bytesToHex, hexToBytes, reverseHex } from './hash.js';
+import { dsha256, bytesToHex, hexToBytes } from './hash.js';
+import { ScriptEngine } from './script.js';
 
 const NULL_TXID = '0'.repeat(64);
 const keyOf = (prevout) => `${prevout.txid}:${prevout.vout}`;
@@ -22,10 +23,11 @@ export const isCoinbase = (tx) =>
   && tx.inputs[0].prevout.vout === 0xffffffff;
 
 export class BlockEngine {
-  constructor(codec, params, ruleSets) {
+  constructor(codec, params, ruleSets, scriptEngine = null) {
     this.codec = codec;
     this.params = params;
     this.ruleSets = ruleSets; // {transaction, block, blockContext}
+    this.scriptEngine = scriptEngine; // needed by the sigop rule
 
     const sumOut = (tx) => tx.outputs.reduce((s, o) => s + o.value, 0);
 
@@ -57,6 +59,13 @@ export class BlockEngine {
         this.codec.merkleRoot(txids) === block.header.merkleRoot,
       'btc:rule-block-tx-duplicates': ({ txids }) => new Set(txids).size === txids.length,
       'btc:rule-block-weight': ({ block }) => this.blockWeight(block) <= params.maxBlockWeight,
+      'btc:rule-block-sigops': ({ block }) => {
+        if (!this.scriptEngine) return null;
+        const sigops = block.transactions.reduce((s, tx) =>
+          s + tx.inputs.reduce((a, i) => a + this.legacySigOps(i.scriptSig), 0)
+            + tx.outputs.reduce((a, o) => a + this.legacySigOps(o.scriptPubKey), 0), 0);
+        return 4 * sigops <= params.maxBlockSigopsCost;
+      },
       'btc:rule-block-transactions': ({ block }) =>
         block.transactions.every((tx, i) => this.validateTransaction(tx, i === 0).ok),
     };
@@ -73,6 +82,23 @@ export class BlockEngine {
       'btc:rule-blockctx-fees': ({ spending }) =>
         spending.deficits.length > 0 ? false
           : spending.valueUnresolved > 0 ? null : true,
+      // lockTime 0 and the all-final-sequences escape need no context; a
+      // time-based lockTime needs median-time-past, which a caller may lack
+      'btc:rule-blockctx-finality': ({ block, height, mtp }) => {
+        let unknown = false;
+        for (const tx of block.transactions) {
+          if (tx.lockTime === 0) continue;
+          if (tx.inputs.every((i) => i.sequence === 0xffffffff)) continue;
+          if (tx.lockTime < 500000000) {
+            if (tx.lockTime >= height) return false;
+          } else if (mtp == null) unknown = true;
+          else if (tx.lockTime >= mtp) return false;
+        }
+        return unknown ? null : true;
+      },
+      'btc:rule-blockctx-coinbase-maturity': ({ spending }) =>
+        spending.premature.length > 0 ? false
+          : spending.maturityUnknown > 0 ? null : true,
       'btc:rule-blockctx-coinbase-amount': ({ block, height, spending }) =>
         spending.valueUnresolved > 0 ? null
           : block.transactions[0].outputs.reduce((s, o) => s + o.value, 0)
@@ -87,14 +113,28 @@ export class BlockEngine {
     };
   }
 
-  static fromSchemas(codec, chainSchema, validateSchema, network = 'btc:mainnet') {
+  static fromSchemas(codec, chainSchema, validateSchema, scriptSchema = null, network = 'btc:mainnet') {
     const params = chainSchema['@graph'].find((n) => n['@id'] === network);
     const set = (phase) => validateSchema['@graph'].find((n) => n['@type'] === 'RuleSet' && n.phase === phase);
+    const scriptEngine = scriptSchema
+      ? ScriptEngine.fromSchemas(scriptSchema, chainSchema, network)
+      : null;
     return new BlockEngine(codec, params, {
       transaction: set('transaction'),
       block: set('block'),
       blockContext: set('block-context'),
-    });
+    }, scriptEngine);
+  }
+
+  // Legacy signature-operation count (Bitcoin Core's GetSigOpCount with
+  // fAccurate=false): CHECKSIG(VERIFY) counts 1, CHECKMULTISIG(VERIFY) 20.
+  legacySigOps(scriptHex) {
+    let n = 0;
+    for (const op of this.scriptEngine.parse(scriptHex)) {
+      if (op.name === 'OP_CHECKSIG' || op.name === 'OP_CHECKSIGVERIFY') n += 1;
+      else if (op.name === 'OP_CHECKMULTISIG' || op.name === 'OP_CHECKMULTISIGVERIFY') n += 20;
+    }
+    return n;
   }
 
   // ---- consensus arithmetic ----
@@ -189,11 +229,11 @@ export class BlockEngine {
   // Definite violations land in `missing` (double spend within the window
   // or block, or a vout that does not exist on a known transaction).
   // Does not mutate utxo.
-  #resolveSpending(block, utxo, external) {
+  #resolveSpending(block, utxo, external, height) {
     const spentHere = new Set();
     const createdHere = new Map();
-    let fees = 0, valueUnresolved = 0, unverified = 0;
-    const missing = [], deficits = [];
+    let fees = 0, valueUnresolved = 0, unverified = 0, maturityUnknown = 0;
+    const missing = [], deficits = [], premature = [];
 
     block.transactions.forEach((tx, i) => {
       const txid = this.codec.txid(tx);
@@ -207,11 +247,17 @@ export class BlockEngine {
             const coin = createdHere.get(key) ?? utxo.get(key);
             if (coin) {
               inSum += coin.output.value;
+              if (coin.coinbase && height - coin.height < this.params.coinbaseMaturity) {
+                premature.push(key);
+              }
             } else {
               const ext = external.get(inp.prevout.txid);
               const out = ext?.outputs[inp.prevout.vout];
-              if (out) { inSum += out.value; unverified++; }
-              else if (ext) { missing.push(key); valuesOk = false; }
+              if (out) {
+                inSum += out.value; unverified++;
+                // an out-of-window coinbase coin's creation height is unknown
+                if (isCoinbase(ext)) maturityUnknown++;
+              } else if (ext) { missing.push(key); valuesOk = false; }
               else { valueUnresolved++; valuesOk = false; }
             }
           }
@@ -225,17 +271,17 @@ export class BlockEngine {
       }
       tx.outputs.forEach((output, vout) => {
         if (!output.scriptPubKey.startsWith('6a')) {
-          createdHere.set(`${txid}:${vout}`, { output, coinbase: i === 0 });
+          createdHere.set(`${txid}:${vout}`, { output, coinbase: i === 0, height });
         }
       });
     });
-    return { fees, missing, deficits, valueUnresolved, unverified };
+    return { fees, missing, deficits, premature, valueUnresolved, unverified, maturityUnknown };
   }
 
-  validateBlockContext(block, { height, utxo = new Map(), external = new Map() }) {
-    const spending = this.#resolveSpending(block, utxo, external);
+  validateBlockContext(block, { height, utxo = new Map(), external = new Map(), mtp = null }) {
+    const spending = this.#resolveSpending(block, utxo, external, height);
     const verdict = this.#run(this.ruleSets.blockContext, this.contextChecks,
-      { block, height, spending });
+      { block, height, spending, mtp });
     return { ...verdict, spending };
   }
 

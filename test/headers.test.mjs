@@ -22,8 +22,18 @@ const dec = (hex) => codec.decode('BlockHeader', hex);
 test('schema wiring: mainnet params and header ruleset load', () => {
   assert.equal(engine.params.name, 'mainnet');
   assert.equal(engine.interval, 2016);
-  assert.equal(engine.ruleSet.rules.length, 5);
+  assert.equal(engine.ruleSet.rules.length, 6);
   assert.ok(engine.ruleSet.rules.every((r) => engine.checks[r['@id']]));
+});
+
+test('header version requirements follow buried deployments', () => {
+  const check = engine.checks['btc:rule-header-version'];
+  assert.equal(check({ header: { version: 1 }, height: 100000 }), true, 'v1 fine pre-BIP34');
+  assert.equal(check({ header: { version: 1 }, height: 227931 }), false, 'v1 rejected from BIP34');
+  assert.equal(check({ header: { version: 2 }, height: 363725 }), false, 'v2 rejected from BIP66');
+  assert.equal(check({ header: { version: 3 }, height: 388381 }), false, 'v3 rejected from BIP65');
+  assert.equal(check({ header: { version: 4 }, height: 500000 }), true);
+  assert.equal(check({ header: { version: 1 }, height: null }), null, 'unknown height skips');
 });
 
 test('compact bits round-trip', () => {

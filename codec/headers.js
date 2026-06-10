@@ -31,6 +31,14 @@ export class HeaderEngine {
         ctx.mtpWindow?.length ? ctx.header.time > this.medianTimePast(ctx.mtpWindow) : null,
       'btc:rule-header-time-future': (ctx) =>
         ctx.now == null ? null : ctx.header.time <= ctx.now + this.params.maxFutureBlockTime,
+      'btc:rule-header-version': (ctx) => {
+        if (ctx.height == null) return null;
+        const p = this.params;
+        const min = ctx.height >= p.bip65Height ? 4
+          : ctx.height >= p.bip66Height ? 3
+          : ctx.height >= p.bip34Height ? 2 : 1;
+        return ctx.header.version >= min;
+      },
     };
   }
 
