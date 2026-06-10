@@ -1,0 +1,14 @@
+{
+ "name": "esplora-block-json",
+ "comment": "An esplora block-JSON entry and its known hash, for testing 80-byte header reconstruction from JSON fields.",
+ "block": {
+  "id": "000000000003ba27aa200b1cecaad478d2b00432346c3f1f3986da1afd33e506",
+  "height": 100000,
+  "version": 1,
+  "previousblockhash": "000000000002d01c1fccc21636b607dfd930d31d01c3a62104612a1719011250",
+  "merkle_root": "f3e94742aca4b5ef85488dc37c06c3282295ffec960994b2c0d5ac2a25a95766",
+  "timestamp": 1293623863,
+  "bits": 453281356,
+  "nonce": 274148111
+ }
+}

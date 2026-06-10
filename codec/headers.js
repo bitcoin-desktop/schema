@@ -24,13 +24,20 @@ export class HeaderEngine {
         this.codec.checkProofOfWork(ctx.header),
       'btc:rule-header-difficulty': (ctx) => {
         if (ctx.prev == null) return null;
-        const expected = this.expectedBits(ctx.prev, ctx.height - 1, ctx.epochFirst);
+        const expected = this.expectedBits(ctx.prev, ctx.height - 1, ctx.epochFirst,
+          { header: ctx.header, chainAt: ctx.chainAt });
         return expected == null ? null : ctx.header.bits === expected;
       },
       'btc:rule-header-mtp': (ctx) =>
         ctx.mtpWindow?.length ? ctx.header.time > this.medianTimePast(ctx.mtpWindow) : null,
       'btc:rule-header-time-future': (ctx) =>
         ctx.now == null ? null : ctx.header.time <= ctx.now + this.params.maxFutureBlockTime,
+      'btc:rule-header-timewarp': (ctx) => {
+        if (!this.params.timewarpFix) return null;
+        if (ctx.height == null || ctx.prev == null) return null;
+        if (ctx.height % this.interval !== 0) return true; // only epoch-first blocks
+        return ctx.header.time >= ctx.prev.time - this.params.maxTimewarp;
+      },
       'btc:rule-header-version': (ctx) => {
         if (ctx.height == null) return null;
         const p = this.params;
@@ -73,20 +80,38 @@ export class HeaderEngine {
   }
 
   // The bits required of the block following `prev` at height prevHeight.
-  // Within an epoch: unchanged. At a boundary: retargeted from the previous
-  // epoch's actual timespan. Returns null if the epoch-first header (needed
-  // only at boundaries) was not provided.
-  expectedBits(prev, prevHeight, epochFirst) {
+  // Within an epoch: unchanged — except on min-difficulty networks, where a
+  // 20-minute gap permits powLimit bits and otherwise the difficulty is that
+  // of the last real-difficulty block (the walk-back needs opts.chainAt; if
+  // unavailable, returns null to skip honestly). At a boundary: retargeted
+  // from the previous epoch's timespan, based on the epoch-first block's
+  // bits under BIP 94 (timewarpFix) and the last block's otherwise.
+  expectedBits(prev, prevHeight, epochFirst, opts = {}) {
     if (this.params.powNoRetargeting) return prev.bits;
-    if ((prevHeight + 1) % this.interval !== 0) return prev.bits;
+    const boundary = (prevHeight + 1) % this.interval === 0;
+    if (!boundary && this.params.allowMinDifficultyBlocks) {
+      const powBits = this.compactFromTarget(this.powLimit);
+      if (opts.header && opts.header.time > prev.time + 2 * this.params.targetSpacing) {
+        return powBits;
+      }
+      let h = prevHeight, hdr = prev;
+      while (h % this.interval !== 0 && hdr.bits === powBits) {
+        const back = opts.chainAt?.(h - 1);
+        if (!back) return null; // walk-back context exhausted
+        h--; hdr = back;
+      }
+      return hdr.bits;
+    }
+    if (!boundary) return prev.bits;
     if (epochFirst == null) return null;
-    return this.retarget(epochFirst.time, prev.time, prev.bits);
+    const base = this.params.timewarpFix ? epochFirst.bits : prev.bits;
+    return this.retarget(epochFirst.time, prev.time, base);
   }
 
-  retarget(firstTime, lastTime, oldBits) {
+  retarget(firstTime, lastTime, baseBits) {
     const span = this.params.targetTimespan;
     const actual = Math.max(span / 4, Math.min(lastTime - firstTime, span * 4));
-    let target = this.codec.expandCompact(oldBits) * BigInt(actual) / BigInt(span);
+    let target = this.codec.expandCompact(baseBits) * BigInt(actual) / BigInt(span);
     if (target > this.powLimit) target = this.powLimit;
     return this.compactFromTarget(target);
   }
@@ -111,7 +136,7 @@ export class HeaderEngine {
   //   epochFirsts: {height: header} for epoch-first headers needed at
   //                retarget boundaries that fall before the window
   //   now: unix time for the future-time rule (null to skip)
-  validateChain(headers, { startHeight, prevContext = [], epochFirsts = {}, now = null }) {
+  validateChain(headers, { startHeight, prevContext = [], epochFirsts = {}, now = null, ...extra }) {
     const all = [...prevContext, ...headers];
     const firstIndex = prevContext.length;
     const heightOf = (i) => startHeight - prevContext.length + i;
@@ -124,12 +149,19 @@ export class HeaderEngine {
       const inWindow = boundaryFirst != null && boundaryFirst >= heightOf(0)
         ? all[boundaryFirst - heightOf(0)]
         : null;
+      const chainAt = (h) => {
+        const idx = h - heightOf(0);
+        if (idx >= 0 && idx < i) return all[idx];
+        return epochFirsts[h] ?? extra.chainAt?.(h) ?? null;
+      };
       const ctx = {
         header,
         height,
         prev: i > 0 ? all[i - 1] : null,
         mtpWindow: all.slice(Math.max(0, i - 11), i),
-        epochFirst: inWindow ?? epochFirsts[boundaryFirst] ?? null,
+        epochFirst: inWindow ?? epochFirsts[boundaryFirst]
+          ?? (boundaryFirst != null ? extra.chainAt?.(boundaryFirst) : null) ?? null,
+        chainAt,
         now,
       };
       const verdict = this.validateHeader(ctx);

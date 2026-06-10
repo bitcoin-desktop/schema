@@ -22,7 +22,7 @@ const dec = (hex) => codec.decode('BlockHeader', hex);
 test('schema wiring: mainnet params and header ruleset load', () => {
   assert.equal(engine.params.name, 'mainnet');
   assert.equal(engine.interval, 2016);
-  assert.equal(engine.ruleSet.rules.length, 6);
+  assert.equal(engine.ruleSet.rules.length, 7);
   assert.ok(engine.ruleSet.rules.every((r) => engine.checks[r['@id']]));
 });
 
@@ -72,7 +72,11 @@ test('31-header mainnet window validates under the full ruleset', () => {
   assert.equal(rows.length, 20);
   for (const row of rows) {
     assert.equal(row.ok, true, `height ${row.height}: ${JSON.stringify(row.results)}`);
-    for (const r of row.results) assert.equal(r.ok, true, `${row.height} ${r.label}`);
+    for (const r of row.results) {
+      // timewarp is gated to timewarp-fix networks and skips on mainnet
+      if (r.label === 'timewarp') assert.equal(r.ok, null, `${row.height} ${r.label}`);
+      else assert.equal(r.ok, true, `${row.height} ${r.label}`);
+    }
   }
   const block100000 = rows.find((r) => r.height === 100000);
   assert.equal(block100000.hash, chain100k.expected.hash100000);
