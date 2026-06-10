@@ -5,11 +5,10 @@
       "@id": "btc:validate",
       "@type": "Module",
       "label": "validate",
-      "version": "0.0.5",
+      "version": "0.0.6",
       "comment": "Validation rules as data, in the spirit of Hornet Node's formal consensus specification: ordered rulesets of pure checks, each enforcing a single invariant and naming a typed error. Error codes match Bitcoin Core's reject reasons so results are comparable across implementations.",
       "layer": "rules"
     },
-
     {
       "@id": "btc:HeaderRules",
       "@type": "RuleSet",
@@ -57,10 +56,22 @@
           "errorCode": "time-too-new",
           "comment": "The header's timestamp must be no more than maxFutureBlockTime (2 hours) ahead of network-adjusted time.",
           "check": "header.time <= now + params.maxFutureBlockTime"
+        },
+        {
+          "@id": "btc:rule-header-version",
+          "@type": "ValidationRule",
+          "label": "version",
+          "errorCode": "bad-version",
+          "bip": [
+            34,
+            66,
+            65
+          ],
+          "comment": "Obsolete block versions are rejected once the corresponding deployment is buried: version >= 2 from params.bip34Height, >= 3 from params.bip66Height, >= 4 from params.bip65Height.",
+          "check": "header.version >= minVersionAt(height, params)"
         }
       ]
     },
-
     {
       "@id": "btc:SpvRules",
       "@type": "RuleSet",
@@ -103,7 +114,6 @@
         }
       ]
     },
-
     {
       "@id": "btc:TransactionRules",
       "@type": "RuleSet",
@@ -168,7 +178,6 @@
         }
       ]
     },
-
     {
       "@id": "btc:BlockRules",
       "@type": "RuleSet",
@@ -210,6 +219,14 @@
           "check": "unique(map(block.transactions, txid))"
         },
         {
+          "@id": "btc:rule-block-sigops",
+          "@type": "ValidationRule",
+          "label": "sigop-limit",
+          "errorCode": "bad-blk-sigops",
+          "comment": "Total legacy signature operations (CHECKSIG counts 1, CHECKMULTISIG counts 20, over all scriptSigs and scriptPubKeys) times the witness scale factor (4) may not exceed params.maxBlockSigopsCost.",
+          "check": "4 * sum(map(block.transactions, legacySigOps)) <= params.maxBlockSigopsCost"
+        },
+        {
           "@id": "btc:rule-block-weight",
           "@type": "ValidationRule",
           "label": "weight-limit",
@@ -226,14 +243,13 @@
         }
       ]
     },
-
     {
       "@id": "btc:BlockContextRules",
       "@type": "RuleSet",
       "module": "btc:validate",
       "label": "BlockContextRules",
       "phase": "block-context",
-      "comment": "Validation of a block against chain state: the UTXO set, the block's height, and activated deployments. Rules whose required context is unavailable are skipped and reported — in a pruned window, inputs spending coins created before the window can be resolved only if their transactions are provided. Witness/signature script execution is out of scope of this phase.",
+      "comment": "Validation of a block against chain state: the UTXO set, the block's height, and activated deployments. Rules whose required context is unavailable are skipped and reported \u2014 in a pruned window, inputs spending coins created before the window can be resolved only if their transactions are provided. Witness/signature script execution is out of scope of this phase.",
       "rules": [
         {
           "@id": "btc:rule-blockctx-bip34-height",
@@ -246,12 +262,29 @@
           "check": "scriptNumber(firstPush(coinbase.scriptSig)) == height"
         },
         {
+          "@id": "btc:rule-blockctx-finality",
+          "@type": "ValidationRule",
+          "label": "tx-finality",
+          "errorCode": "bad-txns-nonfinal",
+          "bip": 113,
+          "comment": "Every transaction must be final at this block: lockTime of zero, or lockTime below the block height (if < 500,000,000) or below the median-time-past (otherwise), or all input sequences final (0xffffffff).",
+          "check": "every(block.transactions, isFinal(tx, height, medianTimePast))"
+        },
+        {
           "@id": "btc:rule-blockctx-inputs-available",
           "@type": "ValidationRule",
           "label": "inputs-available",
           "errorCode": "bad-txns-inputs-missingorspent",
           "comment": "Every non-coinbase input must spend a coin that exists and is unspent at this point in the block's execution (no double spends within or across the block's transactions).",
           "check": "every(inputs, utxo.has(prevout)) with sequential spending"
+        },
+        {
+          "@id": "btc:rule-blockctx-coinbase-maturity",
+          "@type": "ValidationRule",
+          "label": "coinbase-maturity",
+          "errorCode": "bad-txns-premature-spend-of-coinbase",
+          "comment": "A coinbase coin may be spent only at least params.coinbaseMaturity (100) blocks after its creation. In a pruned window the rule fails on a provably premature spend of a window coinbase; spends of out-of-window coinbase coins, whose height is unknowable, skip.",
+          "check": "every(spentCoinbaseCoins, height - coin.height >= params.coinbaseMaturity)"
         },
         {
           "@id": "btc:rule-blockctx-fees",
@@ -276,7 +309,7 @@
           "errorCode": "bad-witness-merkle-match",
           "bip": 141,
           "activationParam": "segwitHeight",
-          "comment": "If any transaction has witness data, the coinbase must carry a commitment output (OP_RETURN 0xaa21a9ed…) equal to dsha256(witnessMerkleRoot || witnessReservedValue). Active from params.segwitHeight.",
+          "comment": "If any transaction has witness data, the coinbase must carry a commitment output (OP_RETURN 0xaa21a9ed\u2026) equal to dsha256(witnessMerkleRoot || witnessReservedValue). Active from params.segwitHeight.",
           "check": "commitment(coinbase) == dsha256(witnessMerkleRoot(block) || witnessReserved)"
         }
       ]

@@ -13,18 +13,24 @@ const load = async (p) => JSON.parse(await readFile(new URL(p, root), 'utf8'));
 
 const codec = new Codec(await load('schema/core.jsonld'));
 const engine = BlockEngine.fromSchemas(
-  codec, await load('schema/chain.jsonld'), await load('schema/validate.jsonld'));
+  codec, await load('schema/chain.jsonld'), await load('schema/validate.jsonld'),
+  await load('schema/script.jsonld'));
 
 const vector = await load('test/vectors/pruned-window-100000.json');
 const segwitTxHex = (await load('test/vectors/first-segwit-tx.json')).hex;
 const blocks = vector.blocks.map((hex) => codec.decode('Block', hex));
 const external = new Map(
   Object.entries(vector.prevTxs).map(([txid, hex]) => [txid, codec.decode('Transaction', hex)]));
+const prevHeaders = vector.prevHeaders.map((hex) => codec.decode('BlockHeader', hex));
+const medianOf = (times) => {
+  const t = times.slice(-11).sort((a, b) => a - b);
+  return t[t.length >> 1];
+};
 
 test('schema wiring: three rulesets load with bound checks', () => {
   assert.equal(engine.ruleSets.transaction.rules.length, 7);
-  assert.equal(engine.ruleSets.block.rules.length, 6);
-  assert.equal(engine.ruleSets.blockContext.rules.length, 5);
+  assert.equal(engine.ruleSets.block.rules.length, 7);
+  assert.equal(engine.ruleSets.blockContext.rules.length, 7);
   for (const [set, checks] of [
     [engine.ruleSets.transaction, engine.txChecks],
     [engine.ruleSets.block, engine.blockChecks],
@@ -48,8 +54,10 @@ test('all six blocks round-trip byte-exactly', () => {
 
 test('the 6-block window fully validates with UTXO evolution', () => {
   const utxo = new Map();
+  const times = prevHeaders.map((h) => h.time);
   blocks.forEach((block, i) => {
     const height = vector.startHeight + i;
+    const mtp = medianOf(times);
     for (const [j, tx] of block.transactions.entries()) {
       const v = engine.validateTransaction(tx, j === 0);
       assert.ok(v.ok, `tx phase ${height}/${j}: ${JSON.stringify(v.results)}`);
@@ -57,7 +65,7 @@ test('the 6-block window fully validates with UTXO evolution', () => {
     const structural = engine.validateBlockStructure(block);
     assert.ok(structural.ok, `block phase ${height}: ${JSON.stringify(structural.results)}`);
 
-    const ctx = engine.validateBlockContext(block, { height, utxo, external });
+    const ctx = engine.validateBlockContext(block, { height, utxo, external, mtp });
     assert.ok(ctx.ok, `context phase ${height}: ${JSON.stringify(ctx.results)}`);
     assert.equal(ctx.spending.valueUnresolved, 0, 'every input value resolves');
     assert.equal(ctx.spending.deficits.length, 0);
@@ -69,8 +77,55 @@ test('the 6-block window fully validates with UTXO evolution', () => {
     assert.equal(byLabel['coinbase-amount'], true, 'coinbase <= subsidy + fees');
 
     engine.applyBlock(utxo, block, height);
+    times.push(block.header.time);
   });
   assert.ok(utxo.size > 0);
+});
+
+test('sigop counting matches Core semantics', () => {
+  assert.equal(engine.legacySigOps('ac'), 1);   // OP_CHECKSIG
+  assert.equal(engine.legacySigOps('ae'), 20);  // OP_CHECKMULTISIG
+  assert.equal(engine.legacySigOps('76a914' + '00'.repeat(20) + '88ac'), 1); // p2pkh
+  const structural = engine.validateBlockStructure(blocks[0]);
+  assert.equal(structural.results.find((r) => r.label === 'sigop-limit').ok, true);
+});
+
+test('non-final transaction fails bad-txns-nonfinal', () => {
+  const block = structuredClone(blocks[0]);
+  block.transactions[1].lockTime = 200000; // beyond the block height
+  block.transactions[1].inputs.forEach((i) => { i.sequence = 0; });
+  const ctx = engine.validateBlockContext(block, { height: 100000, utxo: new Map(), external, mtp: 1 });
+  assert.equal(ctx.results.find((r) => r.label === 'tx-finality').error, 'bad-txns-nonfinal');
+});
+
+test('time-locked transaction without MTP context skips finality', () => {
+  const block = structuredClone(blocks[0]);
+  block.transactions[1].lockTime = 1600000000; // time-based lock
+  block.transactions[1].inputs.forEach((i) => { i.sequence = 0; });
+  const ctx = engine.validateBlockContext(block, { height: 100000, utxo: new Map(), external });
+  assert.equal(ctx.results.find((r) => r.label === 'tx-finality').ok, null);
+});
+
+test('premature spend of a window coinbase fails maturity', () => {
+  const utxo = new Map([['aa'.repeat(32) + ':0', {
+    outpoint: { txid: 'aa'.repeat(32), vout: 0 },
+    output: { value: 50_0000_0000, scriptPubKey: '51' },
+    height: 100004, coinbase: true,
+  }]]);
+  const block = {
+    header: blocks[0].header,
+    transactions: [structuredClone(blocks[0].transactions[0]), {
+      version: 1, lockTime: 0,
+      inputs: [{ prevout: { txid: 'aa'.repeat(32), vout: 0 }, scriptSig: '', sequence: 0xffffffff }],
+      outputs: [{ value: 49_0000_0000, scriptPubKey: '51' }],
+    }],
+  };
+  const ctx = engine.validateBlockContext(block, { height: 100005, utxo, external: new Map(), mtp: 1 });
+  assert.equal(ctx.results.find((r) => r.label === 'coinbase-maturity').error,
+    'bad-txns-premature-spend-of-coinbase');
+  // same spend 100 blocks later is mature
+  const late = engine.validateBlockContext(block, { height: 100104, utxo, external: new Map(), mtp: 1 });
+  assert.equal(late.results.find((r) => r.label === 'coinbase-maturity').ok, true);
 });
 
 test('block 100000 facts: fees and coinbase amount', () => {

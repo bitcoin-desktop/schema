@@ -79,7 +79,8 @@
   const chainSchema = await load('../schema/chain.jsonld');
   const validateSchema = await load('../schema/validate.jsonld');
   const headerEngine = HeaderEngine.fromSchemas(codec, chainSchema, validateSchema);
-  const blockEngine = BlockEngine.fromSchemas(codec, chainSchema, validateSchema);
+  const blockEngine = BlockEngine.fromSchemas(codec, chainSchema, validateSchema,
+    await load('../schema/script.jsonld'));
 
   const text = async (p) => {
     const r = await fetch(API + p);
@@ -152,14 +153,18 @@
       });
 
       const utxo = new Map();
+      const times = prevContext.map((h) => h.time);
       let allOk = true;
       const cards = blocks.map((block, i) => {
         const height = start + i;
+        const sorted = times.slice(-11).sort((a, b) => a - b);
+        const mtp = sorted.length ? sorted[sorted.length >> 1] : null;
         const txPhase = block.transactions.map((tx, j) => blockEngine.validateTransaction(tx, j === 0));
         const txOk = txPhase.every((v) => v.ok);
         const structural = blockEngine.validateBlockStructure(block);
-        const context = blockEngine.validateBlockContext(block, { height, utxo, external });
+        const context = blockEngine.validateBlockContext(block, { height, utxo, external, mtp });
         const delta = blockEngine.applyBlock(utxo, block, height);
+        times.push(block.header.time);
         const ok = headerRows[i].ok && txOk && structural.ok && context.ok;
         allOk = allOk && ok;
         const sp = context.spending;

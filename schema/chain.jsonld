@@ -5,11 +5,10 @@
       "@id": "btc:chain",
       "@type": "Module",
       "label": "chain",
-      "version": "0.0.5",
+      "version": "0.0.6",
       "comment": "Chain-contextual structures: state that depends on which chain you are following and where its tip is. Nothing in this module is covered by proof-of-work; it parameterizes and indexes the consensus structures defined in core.",
       "layer": "context"
     },
-
     {
       "@id": "btc:NetworkParams",
       "@type": "ContextStruct",
@@ -17,30 +16,146 @@
       "label": "NetworkParams",
       "comment": "Consensus parameters of a Bitcoin network deployment. These are constants agreed by convention at network genesis, not serialized data.",
       "fields": [
-        { "property": "btc:networkName", "label": "name", "valueType": "string", "comment": "Human name of the network." },
-        { "property": "btc:magic", "label": "magic", "valueType": "hex", "comment": "Four magic bytes prefixing every P2P message on this network." },
-        { "property": "btc:genesisHash", "label": "genesisHash", "valueType": "hash", "comment": "Hash of the network's genesis block header." },
-        { "property": "btc:powLimit", "label": "powLimit", "valueType": "hex", "comment": "Maximum (easiest) allowed proof-of-work target, as a 256-bit value." },
-        { "property": "btc:targetTimespan", "label": "targetTimespan", "valueType": "u32", "comment": "Difficulty retarget period in seconds: two weeks (1,209,600)." },
-        { "property": "btc:targetSpacing", "label": "targetSpacing", "valueType": "u32", "comment": "Target interval between blocks in seconds: ten minutes (600)." },
-        { "property": "btc:difficultyAdjustmentInterval", "label": "difficultyAdjustmentInterval", "valueType": "u32", "comment": "Blocks per difficulty epoch: targetTimespan / targetSpacing = 2016." },
-        { "property": "btc:maxFutureBlockTime", "label": "maxFutureBlockTime", "valueType": "u32", "comment": "Maximum seconds a block timestamp may be ahead of network-adjusted time: 7200 (2 hours)." },
-        { "property": "btc:halvingInterval", "label": "halvingInterval", "valueType": "u32", "comment": "Blocks between block-subsidy halvings: 210,000." },
-        { "property": "btc:port", "label": "port", "valueType": "u16", "comment": "Default P2P TCP port." },
-        { "property": "btc:p2pkhVersion", "label": "p2pkhVersion", "valueType": "u8", "comment": "Base58Check version byte for pay-to-public-key-hash addresses." },
-        { "property": "btc:p2shVersion", "label": "p2shVersion", "valueType": "u8", "comment": "Base58Check version byte for pay-to-script-hash addresses." },
-        { "property": "btc:bech32Hrp", "label": "bech32Hrp", "valueType": "string", "comment": "Human-readable part of bech32/bech32m segwit addresses (BIP 173/350)." },
-        { "property": "btc:maxMoney", "label": "maxMoney", "valueType": "i64", "comment": "Maximum total supply in satoshis: 21,000,000 BTC." },
-        { "property": "btc:initialSubsidy", "label": "initialSubsidy", "valueType": "i64", "comment": "Block subsidy at genesis in satoshis: 50 BTC, halving every halvingInterval blocks." },
-        { "property": "btc:maxBlockWeight", "label": "maxBlockWeight", "valueType": "u32", "comment": "Consensus block weight limit (BIP 141): 4,000,000 weight units." },
-        { "property": "btc:bip34Height", "label": "bip34Height", "valueType": "u32", "comment": "Buried deployment: height from which coinbase scripts must encode the block height (BIP 34)." },
-        { "property": "btc:bip65Height", "label": "bip65Height", "valueType": "u32", "comment": "Buried deployment: OP_CHECKLOCKTIMEVERIFY activation height (BIP 65)." },
-        { "property": "btc:bip66Height", "label": "bip66Height", "valueType": "u32", "comment": "Buried deployment: strict DER signatures activation height (BIP 66)." },
-        { "property": "btc:csvHeight", "label": "csvHeight", "valueType": "u32", "comment": "Buried deployment: OP_CHECKSEQUENCEVERIFY / relative lock-time activation height (BIP 68/112/113)." },
-        { "property": "btc:segwitHeight", "label": "segwitHeight", "valueType": "u32", "comment": "Buried deployment: segregated witness activation height (BIP 141/143/147)." }
+        {
+          "property": "btc:networkName",
+          "label": "name",
+          "valueType": "string",
+          "comment": "Human name of the network."
+        },
+        {
+          "property": "btc:magic",
+          "label": "magic",
+          "valueType": "hex",
+          "comment": "Four magic bytes prefixing every P2P message on this network."
+        },
+        {
+          "property": "btc:genesisHash",
+          "label": "genesisHash",
+          "valueType": "hash",
+          "comment": "Hash of the network's genesis block header."
+        },
+        {
+          "property": "btc:powLimit",
+          "label": "powLimit",
+          "valueType": "hex",
+          "comment": "Maximum (easiest) allowed proof-of-work target, as a 256-bit value."
+        },
+        {
+          "property": "btc:targetTimespan",
+          "label": "targetTimespan",
+          "valueType": "u32",
+          "comment": "Difficulty retarget period in seconds: two weeks (1,209,600)."
+        },
+        {
+          "property": "btc:targetSpacing",
+          "label": "targetSpacing",
+          "valueType": "u32",
+          "comment": "Target interval between blocks in seconds: ten minutes (600)."
+        },
+        {
+          "property": "btc:difficultyAdjustmentInterval",
+          "label": "difficultyAdjustmentInterval",
+          "valueType": "u32",
+          "comment": "Blocks per difficulty epoch: targetTimespan / targetSpacing = 2016."
+        },
+        {
+          "property": "btc:maxFutureBlockTime",
+          "label": "maxFutureBlockTime",
+          "valueType": "u32",
+          "comment": "Maximum seconds a block timestamp may be ahead of network-adjusted time: 7200 (2 hours)."
+        },
+        {
+          "property": "btc:halvingInterval",
+          "label": "halvingInterval",
+          "valueType": "u32",
+          "comment": "Blocks between block-subsidy halvings: 210,000."
+        },
+        {
+          "property": "btc:port",
+          "label": "port",
+          "valueType": "u16",
+          "comment": "Default P2P TCP port."
+        },
+        {
+          "property": "btc:p2pkhVersion",
+          "label": "p2pkhVersion",
+          "valueType": "u8",
+          "comment": "Base58Check version byte for pay-to-public-key-hash addresses."
+        },
+        {
+          "property": "btc:p2shVersion",
+          "label": "p2shVersion",
+          "valueType": "u8",
+          "comment": "Base58Check version byte for pay-to-script-hash addresses."
+        },
+        {
+          "property": "btc:bech32Hrp",
+          "label": "bech32Hrp",
+          "valueType": "string",
+          "comment": "Human-readable part of bech32/bech32m segwit addresses (BIP 173/350)."
+        },
+        {
+          "property": "btc:maxMoney",
+          "label": "maxMoney",
+          "valueType": "i64",
+          "comment": "Maximum total supply in satoshis: 21,000,000 BTC."
+        },
+        {
+          "property": "btc:initialSubsidy",
+          "label": "initialSubsidy",
+          "valueType": "i64",
+          "comment": "Block subsidy at genesis in satoshis: 50 BTC, halving every halvingInterval blocks."
+        },
+        {
+          "property": "btc:maxBlockWeight",
+          "label": "maxBlockWeight",
+          "valueType": "u32",
+          "comment": "Consensus block weight limit (BIP 141): 4,000,000 weight units."
+        },
+        {
+          "property": "btc:bip34Height",
+          "label": "bip34Height",
+          "valueType": "u32",
+          "comment": "Buried deployment: height from which coinbase scripts must encode the block height (BIP 34)."
+        },
+        {
+          "property": "btc:bip65Height",
+          "label": "bip65Height",
+          "valueType": "u32",
+          "comment": "Buried deployment: OP_CHECKLOCKTIMEVERIFY activation height (BIP 65)."
+        },
+        {
+          "property": "btc:bip66Height",
+          "label": "bip66Height",
+          "valueType": "u32",
+          "comment": "Buried deployment: strict DER signatures activation height (BIP 66)."
+        },
+        {
+          "property": "btc:csvHeight",
+          "label": "csvHeight",
+          "valueType": "u32",
+          "comment": "Buried deployment: OP_CHECKSEQUENCEVERIFY / relative lock-time activation height (BIP 68/112/113)."
+        },
+        {
+          "property": "btc:segwitHeight",
+          "label": "segwitHeight",
+          "valueType": "u32",
+          "comment": "Buried deployment: segregated witness activation height (BIP 141/143/147)."
+        },
+        {
+          "property": "btc:maxBlockSigopsCost",
+          "label": "maxBlockSigopsCost",
+          "valueType": "u32",
+          "comment": "Consensus limit on signature-operation cost per block: 80,000 (legacy sigops count 4x)."
+        },
+        {
+          "property": "btc:coinbaseMaturity",
+          "label": "coinbaseMaturity",
+          "valueType": "u32",
+          "comment": "Confirmations before a coinbase output may be spent: 100."
+        }
       ]
     },
-
     {
       "@id": "btc:mainnet",
       "@type": "btc:NetworkParams",
@@ -66,9 +181,10 @@
       "bip65Height": 388381,
       "bip66Height": 363725,
       "csvHeight": 419328,
-      "segwitHeight": 481824
+      "segwitHeight": 481824,
+      "maxBlockSigopsCost": 80000,
+      "coinbaseMaturity": 100
     },
-
     {
       "@id": "btc:Coin",
       "@type": "ContextStruct",
@@ -76,10 +192,30 @@
       "label": "Coin",
       "comment": "An entry in the UTXO set: an unspent transaction output together with the chain context needed to validate its spending. The UTXO set is the complete state of bitcoin ownership; a pruned node keeps it (or a window of its evolution) while discarding old block data.",
       "fields": [
-        { "property": "btc:outpoint", "label": "outpoint", "valueType": "OutPoint", "comment": "The txid:vout identifying this output." },
-        { "property": "btc:output", "label": "output", "valueType": "TransactionOutput", "comment": "The output itself: value and scriptPubKey." },
-        { "property": "btc:height", "label": "height", "valueType": "u32", "comment": "Height of the block that created this coin." },
-        { "property": "btc:coinbase", "label": "coinbase", "valueType": "bool", "comment": "Whether the coin is a coinbase output; coinbase coins are spendable only after 100 confirmations (maturity)." }
+        {
+          "property": "btc:outpoint",
+          "label": "outpoint",
+          "valueType": "OutPoint",
+          "comment": "The txid:vout identifying this output."
+        },
+        {
+          "property": "btc:output",
+          "label": "output",
+          "valueType": "TransactionOutput",
+          "comment": "The output itself: value and scriptPubKey."
+        },
+        {
+          "property": "btc:height",
+          "label": "height",
+          "valueType": "u32",
+          "comment": "Height of the block that created this coin."
+        },
+        {
+          "property": "btc:coinbase",
+          "label": "coinbase",
+          "valueType": "bool",
+          "comment": "Whether the coin is a coinbase output; coinbase coins are spendable only after 100 confirmations (maturity)."
+        }
       ]
     }
   ]
