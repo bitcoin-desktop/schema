@@ -1,6 +1,6 @@
 # Bitcoin Schema
 
-**v0.0.9** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.10** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
@@ -11,7 +11,8 @@ and (eventually) declarative validation rules in the spirit of
 [header chain verifier](https://bitcoin-desktop.github.io/schema/apps/headers.html) ·
 [SPV proof verifier](https://bitcoin-desktop.github.io/schema/apps/spv.html) ·
 [pruned block validator](https://bitcoin-desktop.github.io/schema/apps/blocks.html) ·
-[block miner](https://bitcoin-desktop.github.io/schema/apps/mine.html)
+[block miner](https://bitcoin-desktop.github.io/schema/apps/mine.html) ·
+[p2p wire decoder](https://bitcoin-desktop.github.io/schema/apps/p2p.html)
 
 > Independent community project; not affiliated with Bitcoin Core.
 
@@ -60,7 +61,7 @@ Strict one-way dependencies (Hornet-style): a module may only reference modules 
 | `validate` | **partial** | five phase rulesets, **31 rules** as data, at full parity with Hornet Node's declarative rule specification (header version requirements, sigop limits, tx finality, coinbase maturity included). Bitcoin Core error codes, activation gating. Planned: script execution |
 | `proof` | **partial** | MerkleBlock / partial merkle tree (BIP 37) with full wire annotations. Planned: compact filters (BIP 157/158) |
 | `script` | **partial** | full Opcode enumeration, ScriptType templates as data with address-encoding rules, SighashType, ScriptLimits — plus a working [interpreter](codec/interpreter.js): per-opcode handlers, legacy + BIP 143 + BIP 341 sighash, pure-BigInt ECDSA and Schnorr, every spend path: p2pk/p2pkh/multisig/p2sh (incl. wrapped segwit)/p2wpkh/p2wsh/**p2tr key & script path** with tapscript (CHECKSIGADD, OP_SUCCESSx). Planned: descriptors |
-| `p2p` | planned | message envelope and the wire messages |
+| `p2p` | **shipped** | the 24-byte envelope, 13 payload structs, and a 34-command enumeration mapping every command to its struct — `tx`/`block`/`merkleblock` carry the core/proof structs unchanged. The golden vector is a real mainnet handshake our engine performed over TCP, replayed byte-exactly in CI |
 | `mine` | **shipped** | BlockTemplate (getblocktemplate-shaped), coinbase construction (BIP 34 push, witness commitment, extraNonce), nonce grinding — plus testnet/signet/regtest NetworkParams instances and address *decoding* (base58check, bech32/bech32m) |
 | `wallet` | planned | BIP 32 keys, descriptors, PSBT, BIP 21 |
 
@@ -99,7 +100,12 @@ Each milestone is a working artifact, not just more schema:
    chain in the browser and self-validates every rule, including BIP 34 heights and witness
    commitments. The negative tests are the fun ones: a premature coinbase spend and a
    toy-difficulty mainnet continuation are both rejected by our own rules.
-5. **Full node** — `p2p`: message envelope and wire messages, relay, mempool.
+5. **P2P** ✅ (v0.0.10) — the wire message layer: the test vector is a live handshake with a
+   Bitcoin Core 31.0 node, performed by the schema-driven engine itself (we sent version and
+   verack; their version/wtxidrelay/sendaddrv2/verack/sendcmpct/ping/feefilter replay
+   byte-exactly). [apps/p2p.html](https://bitcoin-desktop.github.io/schema/apps/p2p.html)
+   decodes any raw stream. A live socket loop (relay, mempool) is a host-environment concern —
+   browsers cannot open TCP — and remains future work, as do the BIP 152/157/155 payload structs.
 
 ## Using the codec
 

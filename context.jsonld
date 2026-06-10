@@ -6,39 +6,67 @@
     "btcs": "https://bitcoin-desktop.github.io/schema/meta#",
     "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
     "schema": "https://schema.org/",
-
     "label": "rdfs:label",
     "comment": "rdfs:comment",
-    "seeAlso": { "@id": "rdfs:seeAlso", "@type": "@id" },
-    "subClassOf": { "@id": "rdfs:subClassOf", "@type": "@id" },
-
+    "seeAlso": {
+      "@id": "rdfs:seeAlso",
+      "@type": "@id"
+    },
+    "subClassOf": {
+      "@id": "rdfs:subClassOf",
+      "@type": "@id"
+    },
     "version": "schema:version",
     "Module": "btcs:Module",
     "ConsensusStruct": "btcs:ConsensusStruct",
     "ContextStruct": "btcs:ContextStruct",
     "Enumeration": "btcs:Enumeration",
-    "members": { "@id": "btcs:members", "@container": "@list" },
+    "members": {
+      "@id": "btcs:members",
+      "@container": "@list"
+    },
     "RuleSet": "btcs:RuleSet",
     "ValidationRule": "btcs:ValidationRule",
     "phase": "btcs:phase",
     "errorCode": "btcs:errorCode",
     "check": "btcs:check",
     "activationParam": "btcs:activationParam",
-    "rules": { "@id": "btcs:rules", "@container": "@list" },
+    "rules": {
+      "@id": "btcs:rules",
+      "@container": "@list"
+    },
     "valueType": "btcs:valueType",
-    "module": { "@id": "btcs:module", "@type": "@id" },
+    "module": {
+      "@id": "btcs:module",
+      "@type": "@id"
+    },
     "layer": "btcs:layer",
     "bip": "btcs:bip",
-
-    "fields": { "@id": "btcs:fields", "@container": "@list" },
-    "derived": { "@id": "btcs:derived", "@container": "@list" },
-    "property": { "@id": "btcs:property", "@type": "@id" },
+    "fields": {
+      "@id": "btcs:fields",
+      "@container": "@list"
+    },
+    "derived": {
+      "@id": "btcs:derived",
+      "@container": "@list"
+    },
+    "property": {
+      "@id": "btcs:property",
+      "@type": "@id"
+    },
     "wireType": "btcs:wireType",
-    "itemType": { "@id": "btcs:itemType", "@type": "@id" },
-    "structType": { "@id": "btcs:structType", "@type": "@id" },
+    "itemType": {
+      "@id": "btcs:itemType",
+      "@type": "@id"
+    },
+    "structType": {
+      "@id": "btcs:structType",
+      "@type": "@id"
+    },
     "presentIf": "btcs:presentIf",
     "constValue": "btcs:constValue",
     "wireSize": "btcs:wireSize",
-    "derivation": "btcs:derivation"
+    "derivation": "btcs:derivation",
+    "optionalTrailing": "btcs:optionalTrailing"
   }
 }

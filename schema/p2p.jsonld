@@ -1,0 +1,621 @@
+{
+  "@context": "../context.jsonld",
+  "@graph": [
+    {
+      "@id": "btc:p2p",
+      "@type": "Module",
+      "label": "p2p",
+      "version": "0.0.10",
+      "comment": "The peer-to-peer wire protocol: a 24-byte envelope (magic, command, length, checksum) followed by a typed payload. Block and transaction payloads are exactly the core module's consensus structures \u2014 the network layer carries them unchanged.",
+      "layer": "p2p"
+    },
+    {
+      "@id": "btc:MessageHeader",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "MessageHeader",
+      "wireSize": 24,
+      "comment": "The envelope prefixed to every P2P message.",
+      "fields": [
+        {
+          "property": "btc:magic",
+          "label": "magic",
+          "wireType": "bytes",
+          "comment": "Network magic (NetworkParams.magic); rejects cross-network and desynchronized streams.",
+          "wireSize": 4
+        },
+        {
+          "property": "btc:command",
+          "label": "command",
+          "wireType": "ascii",
+          "comment": "ASCII command name, null-padded to 12 bytes.",
+          "wireSize": 12
+        },
+        {
+          "property": "btc:payloadLength",
+          "label": "length",
+          "wireType": "u32le",
+          "comment": "Payload byte length (max 32 MiB)."
+        },
+        {
+          "property": "btc:checksum",
+          "label": "checksum",
+          "wireType": "bytes",
+          "comment": "First four bytes of dsha256(payload).",
+          "wireSize": 4
+        }
+      ]
+    },
+    {
+      "@id": "btc:NetAddr",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "NetAddr",
+      "comment": "A network address as used inside the version message (without timestamp). IPv4 is IPv6-mapped (::ffff:a.b.c.d).",
+      "fields": [
+        {
+          "property": "btc:services",
+          "label": "services",
+          "wireType": "u64le",
+          "comment": "Service flags the address is believed to offer."
+        },
+        {
+          "property": "btc:ip",
+          "label": "ip",
+          "wireType": "bytes",
+          "comment": "IPv6 address bytes (16).",
+          "wireSize": 16
+        },
+        {
+          "property": "btc:port",
+          "label": "port",
+          "wireType": "u16be",
+          "comment": "TCP port, network byte order (big-endian \u2014 the protocol's one BE field)."
+        }
+      ]
+    },
+    {
+      "@id": "btc:TimestampedNetAddr",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "TimestampedNetAddr",
+      "comment": "A network address as relayed in addr messages: NetAddr preceded by a last-seen timestamp.",
+      "fields": [
+        {
+          "property": "btc:time",
+          "label": "time",
+          "wireType": "u32le",
+          "comment": "Last-seen Unix time."
+        },
+        {
+          "property": "btc:services",
+          "label": "services",
+          "wireType": "u64le",
+          "comment": "Service flags."
+        },
+        {
+          "property": "btc:ip",
+          "label": "ip",
+          "wireType": "bytes",
+          "comment": "IPv6 address bytes (16).",
+          "wireSize": 16
+        },
+        {
+          "property": "btc:port",
+          "label": "port",
+          "wireType": "u16be",
+          "comment": "TCP port, big-endian."
+        }
+      ]
+    },
+    {
+      "@id": "btc:VersionMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "VersionMessage",
+      "comment": "The handshake opener; each side sends one and acknowledges the other's with verack.",
+      "fields": [
+        {
+          "property": "btc:protocolVersion",
+          "label": "version",
+          "wireType": "i32le",
+          "comment": "Protocol version (70016 is current)."
+        },
+        {
+          "property": "btc:services",
+          "label": "services",
+          "wireType": "u64le",
+          "comment": "Service flags offered by the sender."
+        },
+        {
+          "property": "btc:timestamp",
+          "label": "timestamp",
+          "wireType": "i64le",
+          "comment": "Sender's Unix time."
+        },
+        {
+          "property": "btc:addrRecv",
+          "label": "addrRecv",
+          "wireType": "struct",
+          "comment": "How the sender sees the receiver.",
+          "structType": "btc:NetAddr"
+        },
+        {
+          "property": "btc:addrFrom",
+          "label": "addrFrom",
+          "wireType": "struct",
+          "comment": "The sender's own address (commonly zeroed).",
+          "structType": "btc:NetAddr"
+        },
+        {
+          "property": "btc:nonce",
+          "label": "nonce",
+          "wireType": "u64le",
+          "comment": "Random nonce to detect connections to self."
+        },
+        {
+          "property": "btc:userAgent",
+          "label": "userAgent",
+          "wireType": "varstr",
+          "comment": "BIP 14 user-agent string."
+        },
+        {
+          "property": "btc:startHeight",
+          "label": "startHeight",
+          "wireType": "i32le",
+          "comment": "Height of the sender's best chain."
+        },
+        {
+          "property": "btc:relay",
+          "label": "relay",
+          "wireType": "u8",
+          "comment": "BIP 37: whether to relay transactions before a filter is set. Optional trailing field.",
+          "optionalTrailing": true
+        }
+      ]
+    },
+    {
+      "@id": "btc:PingMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "PingMessage",
+      "comment": "Keepalive; pong echoes the nonce.",
+      "fields": [
+        {
+          "property": "btc:nonce",
+          "label": "nonce",
+          "wireType": "u64le",
+          "comment": "Echoed verbatim by pong."
+        }
+      ]
+    },
+    {
+      "@id": "btc:GetHeadersMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "GetHeadersMessage",
+      "comment": "Request headers after the first locator hash the peer recognizes (getblocks has the identical shape and requests inv instead).",
+      "fields": [
+        {
+          "property": "btc:protocolVersion",
+          "label": "version",
+          "wireType": "u32le",
+          "comment": "Protocol version."
+        },
+        {
+          "property": "btc:blockLocator",
+          "label": "blockLocator",
+          "wireType": "vec",
+          "comment": "Block hashes, newest first with exponentially increasing gaps back to genesis.",
+          "itemType": "hash256"
+        },
+        {
+          "property": "btc:hashStop",
+          "label": "hashStop",
+          "wireType": "hash256",
+          "comment": "Stop at this hash (zero = as many as allowed, max 2000 headers)."
+        }
+      ]
+    },
+    {
+      "@id": "btc:HeadersEntry",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "HeadersEntry",
+      "comment": "One entry of a headers message: a block header followed by a transaction count that is always zero on the wire.",
+      "fields": [
+        {
+          "property": "btc:header",
+          "label": "header",
+          "wireType": "struct",
+          "comment": "The 80-byte header.",
+          "structType": "btc:BlockHeader"
+        },
+        {
+          "property": "btc:txCount",
+          "label": "txCount",
+          "wireType": "varint",
+          "comment": "Always 0 in headers messages."
+        }
+      ]
+    },
+    {
+      "@id": "btc:HeadersMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "HeadersMessage",
+      "comment": "Up to 2000 block headers \u2014 the payload of headers-only sync.",
+      "fields": [
+        {
+          "property": "btc:entries",
+          "label": "entries",
+          "wireType": "vec",
+          "comment": "Header entries.",
+          "itemType": "btc:HeadersEntry"
+        }
+      ]
+    },
+    {
+      "@id": "btc:InventoryVector",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "InventoryVector",
+      "comment": "A typed object reference, as announced by inv and requested by getdata.",
+      "fields": [
+        {
+          "property": "btc:invType",
+          "label": "type",
+          "wireType": "u32le",
+          "comment": "InventoryType member."
+        },
+        {
+          "property": "btc:hash",
+          "label": "hash",
+          "wireType": "hash256",
+          "comment": "txid, wtxid, or block hash per the type."
+        }
+      ]
+    },
+    {
+      "@id": "btc:InvMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "InvMessage",
+      "comment": "A list of inventory vectors; the payload shape of inv, getdata, and notfound.",
+      "fields": [
+        {
+          "property": "btc:items",
+          "label": "items",
+          "wireType": "vec",
+          "comment": "Announced or requested objects (max 50,000).",
+          "itemType": "btc:InventoryVector"
+        }
+      ]
+    },
+    {
+      "@id": "btc:AddrMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "AddrMessage",
+      "comment": "Gossip of known peer addresses (max 1000).",
+      "fields": [
+        {
+          "property": "btc:addresses",
+          "label": "addresses",
+          "wireType": "vec",
+          "comment": "Timestamped addresses.",
+          "itemType": "btc:TimestampedNetAddr"
+        }
+      ]
+    },
+    {
+      "@id": "btc:FeeFilterMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "FeeFilterMessage",
+      "bip": 133,
+      "comment": "Ask the peer not to relay transactions below a fee rate.",
+      "fields": [
+        {
+          "property": "btc:feerate",
+          "label": "feerate",
+          "wireType": "u64le",
+          "comment": "Minimum fee rate in satoshis per kvB."
+        }
+      ]
+    },
+    {
+      "@id": "btc:SendCmpctMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "SendCmpctMessage",
+      "bip": 152,
+      "comment": "Negotiate compact block relay.",
+      "fields": [
+        {
+          "property": "btc:announce",
+          "label": "announce",
+          "wireType": "u8",
+          "comment": "1 = announce new blocks with cmpctblock."
+        },
+        {
+          "property": "btc:cmpctVersion",
+          "label": "version",
+          "wireType": "u64le",
+          "comment": "Compact block protocol version."
+        }
+      ]
+    },
+    {
+      "@id": "btc:Command",
+      "@type": "Enumeration",
+      "module": "btc:p2p",
+      "label": "Command",
+      "comment": "The wire commands and their payload structures. Empty-payload commands carry zero bytes (the envelope's length is 0). tx, block, and merkleblock carry the core/proof consensus structures unchanged.",
+      "members": [
+        {
+          "name": "version",
+          "structType": "btc:VersionMessage",
+          "comment": "Handshake opener."
+        },
+        {
+          "name": "verack",
+          "comment": "Acknowledges version. Empty."
+        },
+        {
+          "name": "ping",
+          "structType": "btc:PingMessage",
+          "comment": "Keepalive."
+        },
+        {
+          "name": "pong",
+          "structType": "btc:PingMessage",
+          "comment": "Keepalive reply, echoing the nonce."
+        },
+        {
+          "name": "addr",
+          "structType": "btc:AddrMessage",
+          "comment": "Peer address gossip."
+        },
+        {
+          "name": "getaddr",
+          "comment": "Request addr. Empty."
+        },
+        {
+          "name": "inv",
+          "structType": "btc:InvMessage",
+          "comment": "Announce objects."
+        },
+        {
+          "name": "getdata",
+          "structType": "btc:InvMessage",
+          "comment": "Request announced objects."
+        },
+        {
+          "name": "notfound",
+          "structType": "btc:InvMessage",
+          "comment": "Requested objects not available."
+        },
+        {
+          "name": "getheaders",
+          "structType": "btc:GetHeadersMessage",
+          "comment": "Request headers by locator."
+        },
+        {
+          "name": "getblocks",
+          "structType": "btc:GetHeadersMessage",
+          "comment": "Request block invs by locator (same shape)."
+        },
+        {
+          "name": "headers",
+          "structType": "btc:HeadersMessage",
+          "comment": "Headers-only sync payload."
+        },
+        {
+          "name": "tx",
+          "structType": "btc:Transaction",
+          "comment": "A transaction \u2014 the core struct, unchanged."
+        },
+        {
+          "name": "block",
+          "structType": "btc:Block",
+          "comment": "A full block \u2014 the core struct, unchanged."
+        },
+        {
+          "name": "merkleblock",
+          "structType": "btc:MerkleBlock",
+          "comment": "BIP 37 filtered block \u2014 the proof struct, unchanged.",
+          "bip": 37
+        },
+        {
+          "name": "mempool",
+          "comment": "Request mempool invs (BIP 35). Empty.",
+          "bip": 35
+        },
+        {
+          "name": "feefilter",
+          "structType": "btc:FeeFilterMessage",
+          "comment": "Fee-rate relay floor.",
+          "bip": 133
+        },
+        {
+          "name": "sendheaders",
+          "comment": "Prefer headers announcements (BIP 130). Empty.",
+          "bip": 130
+        },
+        {
+          "name": "sendcmpct",
+          "structType": "btc:SendCmpctMessage",
+          "comment": "Compact block negotiation.",
+          "bip": 152
+        },
+        {
+          "name": "cmpctblock",
+          "comment": "Compact block (BIP 152). Payload struct planned.",
+          "bip": 152
+        },
+        {
+          "name": "getblocktxn",
+          "comment": "Request missing compact-block transactions. Payload struct planned.",
+          "bip": 152
+        },
+        {
+          "name": "blocktxn",
+          "comment": "Missing compact-block transactions. Payload struct planned.",
+          "bip": 152
+        },
+        {
+          "name": "filterload",
+          "comment": "Load a BIP 37 bloom filter. Payload struct planned (deprecated).",
+          "bip": 37
+        },
+        {
+          "name": "filteradd",
+          "comment": "Add to a BIP 37 filter (deprecated).",
+          "bip": 37
+        },
+        {
+          "name": "filterclear",
+          "comment": "Clear the BIP 37 filter (deprecated). Empty.",
+          "bip": 37
+        },
+        {
+          "name": "getcfilters",
+          "comment": "Request compact filters (BIP 157). Payload struct planned.",
+          "bip": 157
+        },
+        {
+          "name": "cfilter",
+          "comment": "A compact filter (BIP 157). Payload struct planned.",
+          "bip": 157
+        },
+        {
+          "name": "getcfheaders",
+          "comment": "Request filter headers (BIP 157). Payload struct planned.",
+          "bip": 157
+        },
+        {
+          "name": "cfheaders",
+          "comment": "Filter headers (BIP 157). Payload struct planned.",
+          "bip": 157
+        },
+        {
+          "name": "getcfcheckpt",
+          "comment": "Request filter checkpoints (BIP 157). Payload struct planned.",
+          "bip": 157
+        },
+        {
+          "name": "cfcheckpt",
+          "comment": "Filter checkpoints (BIP 157). Payload struct planned.",
+          "bip": 157
+        },
+        {
+          "name": "wtxidrelay",
+          "comment": "Negotiate wtxid-based relay (BIP 339). Empty.",
+          "bip": 339
+        },
+        {
+          "name": "sendaddrv2",
+          "comment": "Negotiate addrv2 gossip (BIP 155). Empty.",
+          "bip": 155
+        },
+        {
+          "name": "addrv2",
+          "comment": "Multi-network address gossip (BIP 155). Payload struct planned.",
+          "bip": 155
+        }
+      ]
+    },
+    {
+      "@id": "btc:ServiceFlags",
+      "@type": "Enumeration",
+      "module": "btc:p2p",
+      "label": "ServiceFlags",
+      "comment": "Bit flags advertised in version messages and address gossip.",
+      "members": [
+        {
+          "name": "NODE_NETWORK",
+          "code": 1,
+          "comment": "Serves the full historical chain."
+        },
+        {
+          "name": "NODE_BLOOM",
+          "code": 4,
+          "comment": "Serves BIP 37 bloom-filtered blocks (deprecated).",
+          "bip": 111
+        },
+        {
+          "name": "NODE_WITNESS",
+          "code": 8,
+          "comment": "Serves witness data (BIP 144).",
+          "bip": 144
+        },
+        {
+          "name": "NODE_COMPACT_FILTERS",
+          "code": 64,
+          "comment": "Serves BIP 157 compact filters.",
+          "bip": 157
+        },
+        {
+          "name": "NODE_NETWORK_LIMITED",
+          "code": 1024,
+          "comment": "Pruned: serves only the last 288 blocks.",
+          "bip": 159
+        },
+        {
+          "name": "NODE_P2P_V2",
+          "code": 2048,
+          "comment": "Supports the encrypted v2 transport (BIP 324).",
+          "bip": 324
+        }
+      ]
+    },
+    {
+      "@id": "btc:InventoryType",
+      "@type": "Enumeration",
+      "module": "btc:p2p",
+      "label": "InventoryType",
+      "comment": "Object types referenced by inventory vectors.",
+      "members": [
+        {
+          "name": "MSG_TX",
+          "code": 1,
+          "comment": "Transaction, by txid."
+        },
+        {
+          "name": "MSG_BLOCK",
+          "code": 2,
+          "comment": "Block, by hash."
+        },
+        {
+          "name": "MSG_FILTERED_BLOCK",
+          "code": 3,
+          "comment": "Reply with a merkleblock (BIP 37).",
+          "bip": 37
+        },
+        {
+          "name": "MSG_CMPCT_BLOCK",
+          "code": 4,
+          "comment": "Reply with a compact block (BIP 152).",
+          "bip": 152
+        },
+        {
+          "name": "MSG_WTX",
+          "code": 5,
+          "comment": "Transaction, by wtxid (BIP 339).",
+          "bip": 339
+        },
+        {
+          "name": "MSG_WITNESS_TX",
+          "code": 1073741825,
+          "comment": "Transaction with witness data (BIP 144)."
+        },
+        {
+          "name": "MSG_WITNESS_BLOCK",
+          "code": 1073741826,
+          "comment": "Block with witness data (BIP 144)."
+        }
+      ]
+    }
+  ]
+}
