@@ -59,6 +59,8 @@
   <div class="controls">
     <div><label for="network">network</label>
       <select id="network"><option value="btc:testnet4">testnet4</option><option value="btc:mainnet">mainnet</option></select></div>
+    <div><label for="bridge">bridge (optional — run <code>node bridge/bridge.mjs</code>)</label>
+      <input id="bridge" spellcheck="false" placeholder="ws://localhost:8334" style="width:14rem"></div>
     <button id="sync">Sync</button>
     <button id="reset" style="background:var(--muted)">Reset store</button>
   </div>
@@ -84,11 +86,13 @@
 </div>
 <script type="module">
   import { Codec } from '../codec/codec.js';
-  import { LightNode, IdbStorage, EsploraSource } from '../codec/node.js';
+  import { LightNode, IdbStorage, EsploraSource, BridgeSource } from '../codec/node.js';
+  import { P2pEngine } from '../codec/p2p.js';
 
   const $ = (id) => document.getElementById(id);
   const load = async (p) => (await fetch(p)).json();
-  const codec = new Codec(await load('../schema/core.jsonld'), await load('../schema/proof.jsonld'));
+  const p2pSchema = await load('../schema/p2p.jsonld');
+  const codec = new Codec(await load('../schema/core.jsonld'), await load('../schema/proof.jsonld'), p2pSchema);
   const chainSchema = await load('../schema/chain.jsonld');
   const validateSchema = await load('../schema/validate.jsonld');
 
@@ -124,13 +128,27 @@
   async function sync() {
     $('sync').disabled = true;
     try {
-      const status = await node.sync({
-        onProgress: (at, target) => {
-          $('status').textContent = `validated to ${at.toLocaleString()} / ${target.toLocaleString()}`;
-          render();
-        },
-      });
-      $('status').textContent = `✓ synced to ${status.tipHeight.toLocaleString()} — every header validated locally`;
+      const bridgeUrl = $('bridge').value.trim();
+      let status;
+      if (bridgeUrl) {
+        const engine = P2pEngine.fromSchemas(codec, p2pSchema, chainSchema, $('network').value);
+        const source = new BridgeSource(bridgeUrl, codec, engine);
+        status = await node.syncP2p(source, {
+          onProgress: (at) => {
+            $('status').textContent = `p2p batches: validated to ${at.toLocaleString()}`;
+            render();
+          },
+        });
+        source.close();
+      } else {
+        status = await node.sync({
+          onProgress: (at, target) => {
+            $('status').textContent = `validated to ${at.toLocaleString()} / ${target.toLocaleString()}`;
+            render();
+          },
+        });
+      }
+      $('status').textContent = `✓ synced to ${status.tipHeight.toLocaleString()} — every header validated locally${bridgeUrl ? ' (via bridge, 2000 headers/message)' : ''}`;
       render();
     } catch (e) {
       $('status').innerHTML = `<span style="color:var(--bad)">✖ ${e.message}</span>`;

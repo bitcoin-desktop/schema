@@ -28,8 +28,13 @@ export class HeaderEngine {
           { header: ctx.header, chainAt: ctx.chainAt });
         return expected == null ? null : ctx.header.bits === expected;
       },
-      'btc:rule-header-mtp': (ctx) =>
-        ctx.mtpWindow?.length ? ctx.header.time > this.medianTimePast(ctx.mtpWindow) : null,
+      'btc:rule-header-mtp': (ctx) => {
+        // a window truncated by storage limits (e.g. just after a sync
+        // checkpoint) yields a wrong median — skip rather than misjudge
+        const need = Math.min(11, ctx.height ?? 11);
+        if (!ctx.mtpWindow || ctx.mtpWindow.length < need) return null;
+        return ctx.header.time > this.medianTimePast(ctx.mtpWindow);
+      },
       'btc:rule-header-time-future': (ctx) =>
         ctx.now == null ? null : ctx.header.time <= ctx.now + this.params.maxFutureBlockTime,
       'btc:rule-header-timewarp': (ctx) => {

@@ -148,6 +148,11 @@ export class LightNode {
         tipHash: hash,
         chainWork: this.engine.work(header).toString(16), // work since checkpoint
       };
+      const context = this.checkpoint.contextHeaders ?? [];
+      meta.startHeight = this.checkpoint.height - context.length;
+      for (const [i, hex] of context.entries()) {
+        await this.storage.set(`h:${meta.startHeight + i}`, hex);
+      }
       await this.storage.set(`h:${this.checkpoint.height}`, this.checkpoint.rawHeader);
       await this.storage.set('meta', meta);
     }
@@ -254,6 +259,21 @@ export class LightNode {
     }
   }
 
+  // P2P-style sync through a BridgeSource: locator-based batches of up to
+  // 2,000 headers per message — full IBD becomes practical in a browser.
+  async syncP2p(source, { onProgress = null, maxBatches = Infinity } = {}) {
+    let batches = 0;
+    while (batches < maxBatches) {
+      const hexes = await source.headersAfter(this.meta.tipHash);
+      if (!hexes.length) break;
+      await this.#appendBatch(hexes, this.meta.tipHeight + 1);
+      batches++;
+      onProgress?.(this.meta.tipHeight, null);
+      if (hexes.length < 2000) break;
+    }
+    return this.status();
+  }
+
   // Verify a transaction's inclusion against OUR chain: the proof's header
   // must equal the header we validated at that height.
   async verifyTx(txid, sourceIdx = 0) {
@@ -273,4 +293,56 @@ export class LightNode {
       confirmations: this.meta.tipHeight - blockHeight + 1,
     };
   }
+}
+
+// A bridge-backed source: speaks the schema's own wire messages over a
+// WebSocket to a bridge daemon (bridge/bridge.mjs), which relays them to a
+// real Bitcoin peer. Works in browsers and Node (global WebSocket).
+export class BridgeSource {
+  constructor(url, codec, p2pEngine) {
+    this.url = url;
+    this.codec = codec;
+    this.engine = p2pEngine;
+    this.base = url;
+  }
+
+  async #ensure() {
+    if (this.ws?.readyState === 1) return;
+    this.ws = new WebSocket(this.url);
+    this.ws.binaryType = 'arraybuffer';
+    await new Promise((resolve, reject) => {
+      this.ws.onopen = resolve;
+      this.ws.onerror = () => reject(new Error(`bridge unreachable: ${this.url}`));
+    });
+    this.ws.onmessage = (ev) => {
+      const msg = this.engine.decodeMessage(new Uint8Array(ev.data));
+      const i = this.waiters.findIndex((w) => w.commands.has(msg.command));
+      if (i >= 0) this.waiters.splice(i, 1)[0].resolve(msg);
+    };
+    this.waiters = [];
+  }
+
+  #waitFor(commands, timeoutMs = 30000) {
+    return new Promise((resolve, reject) => {
+      const waiter = { commands: new Set(commands), resolve };
+      this.waiters.push(waiter);
+      setTimeout(() => {
+        const i = this.waiters.indexOf(waiter);
+        if (i >= 0) { this.waiters.splice(i, 1); reject(new Error('bridge timeout')); }
+      }, timeoutMs);
+    });
+  }
+
+  // Up to 2,000 headers following tipHash, as 80-byte hexes.
+  async headersAfter(tipHash) {
+    await this.#ensure();
+    this.ws.send(this.engine.encodeMessage('getheaders', {
+      version: 70016, blockLocator: [tipHash], hashStop: '0'.repeat(64),
+    }));
+    const reply = await this.#waitFor(['headers']);
+    if (!reply.decoded) return [];
+    return reply.payload.entries.map((e) => this.codec.encodeHex('BlockHeader', e.header));
+  }
+
+  close() { this.ws?.close(); }
 }
