@@ -13,6 +13,7 @@
 
 import { dsha256, bytesToHex, hexToBytes } from './hash.js';
 import { ScriptEngine } from './script.js';
+import { ScriptInterpreter } from './interpreter.js';
 
 const NULL_TXID = '0'.repeat(64);
 const keyOf = (prevout) => `${prevout.txid}:${prevout.vout}`;
@@ -23,11 +24,12 @@ export const isCoinbase = (tx) =>
   && tx.inputs[0].prevout.vout === 0xffffffff;
 
 export class BlockEngine {
-  constructor(codec, params, ruleSets, scriptEngine = null) {
+  constructor(codec, params, ruleSets, scriptEngine = null, interpreter = null) {
     this.codec = codec;
     this.params = params;
     this.ruleSets = ruleSets; // {transaction, block, blockContext}
     this.scriptEngine = scriptEngine; // needed by the sigop rule
+    this.interpreter = interpreter;   // needed by the scripts rule
 
     const sumOut = (tx) => tx.outputs.reduce((s, o) => s + o.value, 0);
 
@@ -99,6 +101,18 @@ export class BlockEngine {
       'btc:rule-blockctx-coinbase-maturity': ({ spending }) =>
         spending.premature.length > 0 ? false
           : spending.maturityUnknown > 0 ? null : true,
+      // real script + signature verification of every resolvable input;
+      // pruned-away prevouts and taproot inputs skip honestly
+      'btc:rule-blockctx-scripts': ({ spending }) => {
+        if (!this.interpreter) return null;
+        let unsupported = 0;
+        for (const { tx, inIndex, prevout } of spending.resolvedInputs) {
+          const v = this.interpreter.verifyInput(tx, inIndex, prevout);
+          if (v.ok === false) return false;
+          if (v.ok === null) unsupported++;
+        }
+        return (spending.valueUnresolved > 0 || unsupported > 0) ? null : true;
+      },
       'btc:rule-blockctx-coinbase-amount': ({ block, height, spending }) =>
         spending.valueUnresolved > 0 ? null
           : block.transactions[0].outputs.reduce((s, o) => s + o.value, 0)
@@ -119,11 +133,15 @@ export class BlockEngine {
     const scriptEngine = scriptSchema
       ? ScriptEngine.fromSchemas(scriptSchema, chainSchema, network)
       : null;
+    const limits = scriptSchema?.['@graph'].find((n) => n['@id'] === 'btc:scriptLimits');
+    const interpreter = scriptEngine
+      ? new ScriptInterpreter(codec, scriptEngine, limits)
+      : null;
     return new BlockEngine(codec, params, {
       transaction: set('transaction'),
       block: set('block'),
       blockContext: set('block-context'),
-    }, scriptEngine);
+    }, scriptEngine, interpreter);
   }
 
   // Legacy signature-operation count (Bitcoin Core's GetSigOpCount with
@@ -233,13 +251,13 @@ export class BlockEngine {
     const spentHere = new Set();
     const createdHere = new Map();
     let fees = 0, valueUnresolved = 0, unverified = 0, maturityUnknown = 0;
-    const missing = [], deficits = [], premature = [];
+    const missing = [], deficits = [], premature = [], resolvedInputs = [];
 
     block.transactions.forEach((tx, i) => {
       const txid = this.codec.txid(tx);
       if (i > 0) {
         let inSum = 0, valuesOk = true;
-        for (const inp of tx.inputs) {
+        tx.inputs.forEach((inp, inIndex) => {
           const key = keyOf(inp.prevout);
           if (spentHere.has(key)) {
             missing.push(key); valuesOk = false;
@@ -247,6 +265,7 @@ export class BlockEngine {
             const coin = createdHere.get(key) ?? utxo.get(key);
             if (coin) {
               inSum += coin.output.value;
+              resolvedInputs.push({ tx, inIndex, prevout: coin.output });
               if (coin.coinbase && height - coin.height < this.params.coinbaseMaturity) {
                 premature.push(key);
               }
@@ -255,6 +274,7 @@ export class BlockEngine {
               const out = ext?.outputs[inp.prevout.vout];
               if (out) {
                 inSum += out.value; unverified++;
+                resolvedInputs.push({ tx, inIndex, prevout: out });
                 // an out-of-window coinbase coin's creation height is unknown
                 if (isCoinbase(ext)) maturityUnknown++;
               } else if (ext) { missing.push(key); valuesOk = false; }
@@ -262,7 +282,7 @@ export class BlockEngine {
             }
           }
           spentHere.add(key);
-        }
+        });
         const outSum = tx.outputs.reduce((s, o) => s + o.value, 0);
         if (valuesOk) {
           if (inSum < outSum) deficits.push(txid);
@@ -275,7 +295,7 @@ export class BlockEngine {
         }
       });
     });
-    return { fees, missing, deficits, premature, valueUnresolved, unverified, maturityUnknown };
+    return { fees, missing, deficits, premature, valueUnresolved, unverified, maturityUnknown, resolvedInputs };
   }
 
   validateBlockContext(block, { height, utxo = new Map(), external = new Map(), mtp = null }) {

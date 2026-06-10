@@ -1,6 +1,6 @@
 # Bitcoin Schema
 
-**v0.0.6** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.7** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
@@ -58,16 +58,18 @@ Strict one-way dependencies (Hornet-style): a module may only reference modules 
 | `chain` | **partial** | NetworkParams + mainnet instance (consensus constants, address encodings, buried-deployment heights), Coin (UTXO entry). Planned: mempool, BIP 9 deployments |
 | `validate` | **partial** | five phase rulesets, **31 rules** as data, at full parity with Hornet Node's declarative rule specification (header version requirements, sigop limits, tx finality, coinbase maturity included). Bitcoin Core error codes, activation gating. Planned: script execution |
 | `proof` | **partial** | MerkleBlock / partial merkle tree (BIP 37) with full wire annotations. Planned: compact filters (BIP 157/158) |
-| `script` | **partial** | full Opcode enumeration (112 named opcodes with categories, disabled flags, BIPs), ScriptType templates as data with address-encoding rules (base58check, bech32, bech32m), SighashType. Planned: tapscript trees, descriptors, script execution |
+| `script` | **partial** | full Opcode enumeration, ScriptType templates as data with address-encoding rules, SighashType, ScriptLimits — plus a working [interpreter](codec/interpreter.js): per-opcode handlers, legacy + BIP 143 sighash, pure-BigInt ECDSA, spend paths p2pk/p2pkh/multisig/p2sh (incl. wrapped segwit)/p2wpkh/p2wsh. Planned: taproot (Schnorr/BIP 341), descriptors |
 | `p2p` | planned | message envelope and the wire messages |
 | `mine` | planned | block template, coinbase construction, targets |
 | `wallet` | planned | BIP 32 keys, descriptors, PSBT, BIP 21 |
 
 The [header engine](codec/headers.js) executes the `validate` ruleset directly from the schema:
 rule order, identity, and error codes are data; the engine binds pure check implementations to
-rule IDs (Hornet-style). As of v0.0.6 the rulesets cover every rule in Hornet's
-header/transaction/block-structural/block-contextual specification — the stated remaining
-gap, for both projects' specs to be executable end-to-end, is script/signature execution.
+rule IDs (Hornet-style). The rulesets cover every rule in Hornet's
+header/transaction/block-structural/block-contextual specification, and as of v0.0.7 the
+`scripts` rule executes unlocking scripts and verifies real ECDSA signatures (legacy and
+BIP 143) — the test suite verifies every signature in blocks 100000-100005 from raw bytes.
+The remaining execution gap is taproot (Schnorr/BIP 341).
 Difficulty retargeting is tested against the first retarget in history
 (block 32256, 2009-12-30) and a current one, reproduced bit-for-bit; chain work matches Core's
 arithmetic (genesis = `0x100010001`).

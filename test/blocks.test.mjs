@@ -30,7 +30,7 @@ const medianOf = (times) => {
 test('schema wiring: three rulesets load with bound checks', () => {
   assert.equal(engine.ruleSets.transaction.rules.length, 7);
   assert.equal(engine.ruleSets.block.rules.length, 7);
-  assert.equal(engine.ruleSets.blockContext.rules.length, 7);
+  assert.equal(engine.ruleSets.blockContext.rules.length, 8);
   for (const [set, checks] of [
     [engine.ruleSets.transaction, engine.txChecks],
     [engine.ruleSets.block, engine.blockChecks],
@@ -75,6 +75,7 @@ test('the 6-block window fully validates with UTXO evolution', () => {
     assert.equal(byLabel['coinbase-height'], null, 'BIP34 not active at 100k');
     assert.equal(byLabel['witness-commitment'], null, 'no witness data at 100k');
     assert.equal(byLabel['coinbase-amount'], true, 'coinbase <= subsidy + fees');
+    assert.equal(byLabel['scripts'], true, 'every signature in the block verifies');
 
     engine.applyBlock(utxo, block, height);
     times.push(block.header.time);

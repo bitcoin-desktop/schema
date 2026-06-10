@@ -5,7 +5,7 @@
       "@id": "btc:validate",
       "@type": "Module",
       "label": "validate",
-      "version": "0.0.6",
+      "version": "0.0.7",
       "comment": "Validation rules as data, in the spirit of Hornet Node's formal consensus specification: ordered rulesets of pure checks, each enforcing a single invariant and naming a typed error. Error codes match Bitcoin Core's reject reasons so results are comparable across implementations.",
       "layer": "rules"
     },
@@ -311,6 +311,14 @@
           "activationParam": "segwitHeight",
           "comment": "If any transaction has witness data, the coinbase must carry a commitment output (OP_RETURN 0xaa21a9ed\u2026) equal to dsha256(witnessMerkleRoot || witnessReservedValue). Active from params.segwitHeight.",
           "check": "commitment(coinbase) == dsha256(witnessMerkleRoot(block) || witnessReserved)"
+        },
+        {
+          "@id": "btc:rule-blockctx-scripts",
+          "@type": "ValidationRule",
+          "label": "scripts",
+          "errorCode": "mandatory-script-verify-flag-failed",
+          "comment": "Every resolvable non-coinbase input's unlocking script (and witness) must satisfy its prevout's locking script, including real ECDSA signature verification with legacy or BIP 143 sighash. Inputs whose prevouts were pruned away, and taproot inputs (Schnorr/BIP 341 not yet implemented), skip honestly.",
+          "check": "every(resolvedInputs, executeScripts(input, prevout) == valid)"
         }
       ]
     }
