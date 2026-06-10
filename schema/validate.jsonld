@@ -5,7 +5,7 @@
       "@id": "btc:validate",
       "@type": "Module",
       "label": "validate",
-      "version": "0.0.3",
+      "version": "0.0.5",
       "comment": "Validation rules as data, in the spirit of Hornet Node's formal consensus specification: ordered rulesets of pure checks, each enforcing a single invariant and naming a typed error. Error codes match Bitcoin Core's reject reasons so results are comparable across implementations.",
       "layer": "rules"
     },
@@ -100,6 +100,184 @@
           "errorCode": "tx-not-included",
           "comment": "The transaction being verified must appear among the proof's matched txids. Skipped when no target transaction is specified.",
           "check": "txid in extractPartialMerkleTree(merkleBlock).matches"
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:TransactionRules",
+      "@type": "RuleSet",
+      "module": "btc:validate",
+      "label": "TransactionRules",
+      "phase": "transaction",
+      "comment": "Context-free structural validation of a single transaction (Bitcoin Core's CheckTransaction). These rules need no chain state. Signature and script execution are a separate, later concern.",
+      "rules": [
+        {
+          "@id": "btc:rule-tx-inputs-nonempty",
+          "@type": "ValidationRule",
+          "label": "inputs-nonempty",
+          "errorCode": "bad-txns-vin-empty",
+          "check": "tx.inputs.length > 0"
+        },
+        {
+          "@id": "btc:rule-tx-outputs-nonempty",
+          "@type": "ValidationRule",
+          "label": "outputs-nonempty",
+          "errorCode": "bad-txns-vout-empty",
+          "check": "tx.outputs.length > 0"
+        },
+        {
+          "@id": "btc:rule-tx-size",
+          "@type": "ValidationRule",
+          "label": "size-limit",
+          "errorCode": "bad-txns-oversize",
+          "comment": "A single transaction may not exceed the block weight limit.",
+          "check": "weight(tx) <= params.maxBlockWeight"
+        },
+        {
+          "@id": "btc:rule-tx-output-values",
+          "@type": "ValidationRule",
+          "label": "output-values",
+          "errorCode": "bad-txns-vout-toolarge",
+          "comment": "Each output value must be in [0, maxMoney], and so must their sum.",
+          "check": "every(tx.outputs, 0 <= value <= params.maxMoney) && sum(tx.outputs.value) <= params.maxMoney"
+        },
+        {
+          "@id": "btc:rule-tx-inputs-unique",
+          "@type": "ValidationRule",
+          "label": "inputs-unique",
+          "errorCode": "bad-txns-inputs-duplicate",
+          "comment": "No two inputs of a transaction may spend the same outpoint.",
+          "check": "unique(tx.inputs.prevout)"
+        },
+        {
+          "@id": "btc:rule-tx-prevouts",
+          "@type": "ValidationRule",
+          "label": "prevouts",
+          "errorCode": "bad-txns-prevout-null",
+          "comment": "A coinbase has exactly one input with the null outpoint; a non-coinbase transaction must have no null outpoints.",
+          "check": "coinbase ? (tx.inputs.length == 1 && isNull(tx.inputs[0].prevout)) : none(tx.inputs, isNull(prevout))"
+        },
+        {
+          "@id": "btc:rule-tx-coinbase-script",
+          "@type": "ValidationRule",
+          "label": "coinbase-script-size",
+          "errorCode": "bad-cb-length",
+          "comment": "A coinbase scriptSig must be between 2 and 100 bytes. Skipped for non-coinbase transactions.",
+          "check": "2 <= byteLength(tx.inputs[0].scriptSig) <= 100"
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:BlockRules",
+      "@type": "RuleSet",
+      "module": "btc:validate",
+      "label": "BlockRules",
+      "phase": "block",
+      "comment": "Context-free structural validation of a block (Bitcoin Core's CheckBlock), given that its header has already passed the header phase. Every transaction must additionally pass the transaction phase.",
+      "rules": [
+        {
+          "@id": "btc:rule-block-coinbase-first",
+          "@type": "ValidationRule",
+          "label": "coinbase-first",
+          "errorCode": "bad-cb-missing",
+          "comment": "The block must be non-empty and its first transaction must be the coinbase.",
+          "check": "block.transactions.length > 0 && isCoinbase(block.transactions[0])"
+        },
+        {
+          "@id": "btc:rule-block-coinbase-single",
+          "@type": "ValidationRule",
+          "label": "coinbase-single",
+          "errorCode": "bad-cb-multiple",
+          "comment": "No transaction after the first may be a coinbase.",
+          "check": "none(block.transactions[1..], isCoinbase)"
+        },
+        {
+          "@id": "btc:rule-block-merkle-root",
+          "@type": "ValidationRule",
+          "label": "merkle-root",
+          "errorCode": "bad-txnmrklroot",
+          "comment": "The merkle root recomputed from the transactions' txids must equal the header's.",
+          "check": "merkleRoot(map(block.transactions, txid)) == block.header.merkleRoot"
+        },
+        {
+          "@id": "btc:rule-block-tx-duplicates",
+          "@type": "ValidationRule",
+          "label": "no-duplicate-txids",
+          "errorCode": "bad-txns-duplicate",
+          "comment": "No two transactions in the block may share a txid (guards the merkle mutation of CVE-2012-2459).",
+          "check": "unique(map(block.transactions, txid))"
+        },
+        {
+          "@id": "btc:rule-block-weight",
+          "@type": "ValidationRule",
+          "label": "weight-limit",
+          "errorCode": "bad-blk-weight",
+          "check": "weight(block) <= params.maxBlockWeight"
+        },
+        {
+          "@id": "btc:rule-block-transactions",
+          "@type": "ValidationRule",
+          "label": "transactions-valid",
+          "errorCode": "bad-txns",
+          "comment": "Every transaction in the block passes the transaction phase.",
+          "check": "every(block.transactions, passes(TransactionRules))"
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:BlockContextRules",
+      "@type": "RuleSet",
+      "module": "btc:validate",
+      "label": "BlockContextRules",
+      "phase": "block-context",
+      "comment": "Validation of a block against chain state: the UTXO set, the block's height, and activated deployments. Rules whose required context is unavailable are skipped and reported — in a pruned window, inputs spending coins created before the window can be resolved only if their transactions are provided. Witness/signature script execution is out of scope of this phase.",
+      "rules": [
+        {
+          "@id": "btc:rule-blockctx-bip34-height",
+          "@type": "ValidationRule",
+          "label": "coinbase-height",
+          "errorCode": "bad-cb-height",
+          "bip": 34,
+          "activationParam": "bip34Height",
+          "comment": "The coinbase scriptSig must begin with a push of the block height. Active from params.bip34Height.",
+          "check": "scriptNumber(firstPush(coinbase.scriptSig)) == height"
+        },
+        {
+          "@id": "btc:rule-blockctx-inputs-available",
+          "@type": "ValidationRule",
+          "label": "inputs-available",
+          "errorCode": "bad-txns-inputs-missingorspent",
+          "comment": "Every non-coinbase input must spend a coin that exists and is unspent at this point in the block's execution (no double spends within or across the block's transactions).",
+          "check": "every(inputs, utxo.has(prevout)) with sequential spending"
+        },
+        {
+          "@id": "btc:rule-blockctx-fees",
+          "@type": "ValidationRule",
+          "label": "no-fee-deficit",
+          "errorCode": "bad-txns-in-belowout",
+          "comment": "For every non-coinbase transaction, the sum of input values must be at least the sum of output values.",
+          "check": "every(txs[1..], sum(inputValues) >= sum(outputValues))"
+        },
+        {
+          "@id": "btc:rule-blockctx-coinbase-amount",
+          "@type": "ValidationRule",
+          "label": "coinbase-amount",
+          "errorCode": "bad-cb-amount",
+          "comment": "The coinbase outputs may not exceed the block subsidy plus the block's total fees.",
+          "check": "sum(coinbase.outputs.value) <= subsidy(height, params) + fees(block)"
+        },
+        {
+          "@id": "btc:rule-blockctx-witness-commitment",
+          "@type": "ValidationRule",
+          "label": "witness-commitment",
+          "errorCode": "bad-witness-merkle-match",
+          "bip": 141,
+          "activationParam": "segwitHeight",
+          "comment": "If any transaction has witness data, the coinbase must carry a commitment output (OP_RETURN 0xaa21a9ed…) equal to dsha256(witnessMerkleRoot || witnessReservedValue). Active from params.segwitHeight.",
+          "check": "commitment(coinbase) == dsha256(witnessMerkleRoot(block) || witnessReserved)"
         }
       ]
     }

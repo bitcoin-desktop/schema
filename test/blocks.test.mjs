@@ -1,0 +1,142 @@
+// Pruned-window validation tests: blocks 100000-100005 validated entirely
+// from raw bytes (the blocks plus their out-of-window prevout transactions),
+// evolving a UTXO window across all six blocks.
+
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { Codec } from '../codec/codec.js';
+import { BlockEngine, isCoinbase } from '../codec/blocks.js';
+
+const root = new URL('..', import.meta.url);
+const load = async (p) => JSON.parse(await readFile(new URL(p, root), 'utf8'));
+
+const codec = new Codec(await load('schema/core.jsonld'));
+const engine = BlockEngine.fromSchemas(
+  codec, await load('schema/chain.jsonld'), await load('schema/validate.jsonld'));
+
+const vector = await load('test/vectors/pruned-window-100000.json');
+const segwitTxHex = (await load('test/vectors/first-segwit-tx.json')).hex;
+const blocks = vector.blocks.map((hex) => codec.decode('Block', hex));
+const external = new Map(
+  Object.entries(vector.prevTxs).map(([txid, hex]) => [txid, codec.decode('Transaction', hex)]));
+
+test('schema wiring: three rulesets load with bound checks', () => {
+  assert.equal(engine.ruleSets.transaction.rules.length, 7);
+  assert.equal(engine.ruleSets.block.rules.length, 6);
+  assert.equal(engine.ruleSets.blockContext.rules.length, 5);
+  for (const [set, checks] of [
+    [engine.ruleSets.transaction, engine.txChecks],
+    [engine.ruleSets.block, engine.blockChecks],
+    [engine.ruleSets.blockContext, engine.contextChecks]]) {
+    assert.ok(set.rules.every((r) => checks[r['@id']]), set.label);
+  }
+});
+
+test('subsidy schedule', () => {
+  assert.equal(engine.subsidy(0), 50_0000_0000);
+  assert.equal(engine.subsidy(100000), 50_0000_0000);
+  assert.equal(engine.subsidy(210000), 25_0000_0000);
+  assert.equal(engine.subsidy(840000), 3_1250_0000);
+});
+
+test('all six blocks round-trip byte-exactly', () => {
+  blocks.forEach((block, i) => {
+    assert.equal(codec.encodeHex('Block', block), vector.blocks[i], `block ${100000 + i}`);
+  });
+});
+
+test('the 6-block window fully validates with UTXO evolution', () => {
+  const utxo = new Map();
+  blocks.forEach((block, i) => {
+    const height = vector.startHeight + i;
+    for (const [j, tx] of block.transactions.entries()) {
+      const v = engine.validateTransaction(tx, j === 0);
+      assert.ok(v.ok, `tx phase ${height}/${j}: ${JSON.stringify(v.results)}`);
+    }
+    const structural = engine.validateBlockStructure(block);
+    assert.ok(structural.ok, `block phase ${height}: ${JSON.stringify(structural.results)}`);
+
+    const ctx = engine.validateBlockContext(block, { height, utxo, external });
+    assert.ok(ctx.ok, `context phase ${height}: ${JSON.stringify(ctx.results)}`);
+    assert.equal(ctx.spending.valueUnresolved, 0, 'every input value resolves');
+    assert.equal(ctx.spending.deficits.length, 0);
+
+    // pre-BIP34 heights: the activation-gated rules must be skipped, not run
+    const byLabel = Object.fromEntries(ctx.results.map((r) => [r.label, r.ok]));
+    assert.equal(byLabel['coinbase-height'], null, 'BIP34 not active at 100k');
+    assert.equal(byLabel['witness-commitment'], null, 'no witness data at 100k');
+    assert.equal(byLabel['coinbase-amount'], true, 'coinbase <= subsidy + fees');
+
+    engine.applyBlock(utxo, block, height);
+  });
+  assert.ok(utxo.size > 0);
+});
+
+test('block 100000 facts: fees and coinbase amount', () => {
+  const ctx = engine.validateBlockContext(blocks[0], { height: 100000, utxo: new Map(), external });
+  const coinbaseOut = blocks[0].transactions[0].outputs.reduce((s, o) => s + o.value, 0);
+  assert.equal(coinbaseOut, engine.subsidy(100000) + ctx.spending.fees,
+    'satoshi-exact: coinbase claims subsidy plus fees');
+});
+
+test('tamper: duplicated input fails bad-txns-inputs-duplicate', () => {
+  const tx = structuredClone(blocks[0].transactions[1]);
+  tx.inputs = [...tx.inputs, tx.inputs[0]];
+  const v = engine.validateTransaction(tx);
+  assert.equal(v.results.find((r) => r.label === 'inputs-unique').error, 'bad-txns-inputs-duplicate');
+});
+
+test('tamper: double spend across transactions fails bad-txns-inputs-missingorspent', () => {
+  const block = structuredClone(blocks[1]);
+  block.transactions.push(structuredClone(block.transactions[1])); // respend same inputs
+  const ctx = engine.validateBlockContext(block, { height: 100001, utxo: new Map(), external });
+  assert.equal(ctx.results.find((r) => r.label === 'inputs-available').error,
+    'bad-txns-inputs-missingorspent');
+});
+
+test('tamper: removing the coinbase fails bad-cb-missing', () => {
+  const block = { ...blocks[0], transactions: blocks[0].transactions.slice(1) };
+  const v = engine.validateBlockStructure(block);
+  assert.equal(v.results.find((r) => r.label === 'coinbase-first').error, 'bad-cb-missing');
+});
+
+test('tamper: inflated coinbase fails bad-cb-amount', () => {
+  const block = structuredClone(blocks[0]);
+  block.transactions[0].outputs[0].value += 1; // one satoshi too greedy
+  const ctx = engine.validateBlockContext(block, { height: 100000, utxo: new Map(), external });
+  assert.equal(ctx.results.find((r) => r.label === 'coinbase-amount').error, 'bad-cb-amount');
+});
+
+test('tamper: swapped transaction order fails bad-txnmrklroot', () => {
+  const block = structuredClone(blocks[1]);
+  [block.transactions[1], block.transactions[2]] = [block.transactions[2], block.transactions[1]];
+  const v = engine.validateBlockStructure(block);
+  assert.equal(v.results.find((r) => r.label === 'merkle-root').error, 'bad-txnmrklroot');
+});
+
+test('witness commitment: self-consistent segwit block verifies and tampers fail', () => {
+  // Build a minimal segwit block: coinbase (with reserved witness) + the
+  // first segwit tx, commitment computed by the engine itself, then verify
+  // the rule logic both ways.
+  const segwitTx = codec.decode('Transaction', segwitTxHex);
+  const coinbase = {
+    version: 1,
+    inputs: [{ prevout: { txid: '0'.repeat(64), vout: 0xffffffff }, scriptSig: '03a0bb0d', sequence: 0xffffffff }],
+    outputs: [{ value: 0, scriptPubKey: '6a24aa21a9ed' + '0'.repeat(64) }],
+    witness: [['0'.repeat(64)]],
+    lockTime: 0,
+  };
+  const block = { header: blocks[0].header, transactions: [coinbase, segwitTx] };
+  coinbase.outputs[0].scriptPubKey = '6a24aa21a9ed' + engine.witnessCommitmentHash(block);
+
+  const check = engine.contextChecks['btc:rule-blockctx-witness-commitment'];
+  assert.equal(check({ block }), true);
+  coinbase.outputs[0].scriptPubKey = '6a24aa21a9ed' + 'f'.repeat(64);
+  assert.equal(check({ block }), false);
+});
+
+test('isCoinbase discriminates', () => {
+  assert.ok(isCoinbase(blocks[0].transactions[0]));
+  assert.ok(!isCoinbase(blocks[0].transactions[1]));
+});

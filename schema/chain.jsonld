@@ -5,7 +5,7 @@
       "@id": "btc:chain",
       "@type": "Module",
       "label": "chain",
-      "version": "0.0.4",
+      "version": "0.0.5",
       "comment": "Chain-contextual structures: state that depends on which chain you are following and where its tip is. Nothing in this module is covered by proof-of-work; it parameterizes and indexes the consensus structures defined in core.",
       "layer": "context"
     },
@@ -29,7 +29,15 @@
         { "property": "btc:port", "label": "port", "valueType": "u16", "comment": "Default P2P TCP port." },
         { "property": "btc:p2pkhVersion", "label": "p2pkhVersion", "valueType": "u8", "comment": "Base58Check version byte for pay-to-public-key-hash addresses." },
         { "property": "btc:p2shVersion", "label": "p2shVersion", "valueType": "u8", "comment": "Base58Check version byte for pay-to-script-hash addresses." },
-        { "property": "btc:bech32Hrp", "label": "bech32Hrp", "valueType": "string", "comment": "Human-readable part of bech32/bech32m segwit addresses (BIP 173/350)." }
+        { "property": "btc:bech32Hrp", "label": "bech32Hrp", "valueType": "string", "comment": "Human-readable part of bech32/bech32m segwit addresses (BIP 173/350)." },
+        { "property": "btc:maxMoney", "label": "maxMoney", "valueType": "i64", "comment": "Maximum total supply in satoshis: 21,000,000 BTC." },
+        { "property": "btc:initialSubsidy", "label": "initialSubsidy", "valueType": "i64", "comment": "Block subsidy at genesis in satoshis: 50 BTC, halving every halvingInterval blocks." },
+        { "property": "btc:maxBlockWeight", "label": "maxBlockWeight", "valueType": "u32", "comment": "Consensus block weight limit (BIP 141): 4,000,000 weight units." },
+        { "property": "btc:bip34Height", "label": "bip34Height", "valueType": "u32", "comment": "Buried deployment: height from which coinbase scripts must encode the block height (BIP 34)." },
+        { "property": "btc:bip65Height", "label": "bip65Height", "valueType": "u32", "comment": "Buried deployment: OP_CHECKLOCKTIMEVERIFY activation height (BIP 65)." },
+        { "property": "btc:bip66Height", "label": "bip66Height", "valueType": "u32", "comment": "Buried deployment: strict DER signatures activation height (BIP 66)." },
+        { "property": "btc:csvHeight", "label": "csvHeight", "valueType": "u32", "comment": "Buried deployment: OP_CHECKSEQUENCEVERIFY / relative lock-time activation height (BIP 68/112/113)." },
+        { "property": "btc:segwitHeight", "label": "segwitHeight", "valueType": "u32", "comment": "Buried deployment: segregated witness activation height (BIP 141/143/147)." }
       ]
     },
 
@@ -50,7 +58,29 @@
       "port": 8333,
       "p2pkhVersion": 0,
       "p2shVersion": 5,
-      "bech32Hrp": "bc"
+      "bech32Hrp": "bc",
+      "maxMoney": 2100000000000000,
+      "initialSubsidy": 5000000000,
+      "maxBlockWeight": 4000000,
+      "bip34Height": 227931,
+      "bip65Height": 388381,
+      "bip66Height": 363725,
+      "csvHeight": 419328,
+      "segwitHeight": 481824
+    },
+
+    {
+      "@id": "btc:Coin",
+      "@type": "ContextStruct",
+      "module": "btc:chain",
+      "label": "Coin",
+      "comment": "An entry in the UTXO set: an unspent transaction output together with the chain context needed to validate its spending. The UTXO set is the complete state of bitcoin ownership; a pruned node keeps it (or a window of its evolution) while discarding old block data.",
+      "fields": [
+        { "property": "btc:outpoint", "label": "outpoint", "valueType": "OutPoint", "comment": "The txid:vout identifying this output." },
+        { "property": "btc:output", "label": "output", "valueType": "TransactionOutput", "comment": "The output itself: value and scriptPubKey." },
+        { "property": "btc:height", "label": "height", "valueType": "u32", "comment": "Height of the block that created this coin." },
+        { "property": "btc:coinbase", "label": "coinbase", "valueType": "bool", "comment": "Whether the coin is a coinbase output; coinbase coins are spendable only after 100 confirmations (maturity)." }
+      ]
     }
   ]
 }
