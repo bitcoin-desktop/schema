@@ -38,7 +38,13 @@ function b58checkDecode(str) {
   return payload;
 }
 
-const XPUB_VERSION = 0x0488b21e; // mainnet public
+// Extended-public-key serialization versions (xpub / tpub). Private
+// versions (xprv/tprv) are rejected by design.
+export const XPUB_VERSIONS = {
+  mainnet: 0x0488b21e, // xpub
+  testnet: 0x043587cf, // tpub (testnet3/testnet4/signet/regtest)
+};
+const KNOWN_VERSIONS = new Set(Object.values(XPUB_VERSIONS));
 
 export class Bip32 {
   // xpub string -> node {version, depth, parentFingerprint, childNumber,
@@ -49,7 +55,7 @@ export class Bip32 {
     if (!data || data.length !== 78) return null;
     const dv = new DataView(data.buffer, data.byteOffset);
     const version = dv.getUint32(0);
-    if (version !== XPUB_VERSION) return null; // watch-only: xpub or nothing
+    if (!KNOWN_VERSIONS.has(version)) return null; // watch-only: xpub/tpub or nothing
     if (data[45] !== 0x02 && data[45] !== 0x03) return null;
     return {
       version,

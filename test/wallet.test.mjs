@@ -8,7 +8,9 @@ import { readFile } from 'node:fs/promises';
 import { Codec } from '../codec/codec.js';
 import { ScriptEngine } from '../codec/script.js';
 import { ScriptInterpreter } from '../codec/interpreter.js';
-import { Bip32, Psbt, parseBip21 } from '../codec/wallet.js';
+import { Bip32, Psbt, parseBip21, XPUB_VERSIONS } from '../codec/wallet.js';
+import { publicKeyFromPrivate } from '../codec/secp256k1.js';
+import { hexToBytes as h2b } from '../codec/hash.js';
 import { sha512, hmacSha512, bytesToHex } from '../codec/hash.js';
 
 const root = new URL('..', import.meta.url);
@@ -144,4 +146,22 @@ test('bip21 payment URIs parse', () => {
   assert.equal(r.amountSats, 123456);
   assert.equal(r.label, 'Coffee Fund');
   assert.equal(parseBip21('litecoin:whatever'), null);
+});
+
+test('tpub: testnet extended keys round-trip and derive', () => {
+  const mainnetNode = Bip32.decode(bip32.chains[0].xpub);
+  const tpub = Bip32.encode({ ...mainnetNode, version: XPUB_VERSIONS.testnet });
+  assert.match(tpub, /^tpub/);
+  const node = Bip32.decode(tpub);
+  assert.equal(node.publicKey, mainnetNode.publicKey);
+  assert.equal(node.version, XPUB_VERSIONS.testnet);
+  const child = Bip32.derive(node, 0);
+  assert.equal(child.version, XPUB_VERSIONS.testnet, 'children keep their network version');
+  assert.equal(Bip32.decode('xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi'), null, 'xprv refused');
+});
+
+test('publicKeyFromPrivate matches the generator for d=1', () => {
+  const pub = publicKeyFromPrivate(h2b('01'.padStart(64, '0')));
+  assert.equal(bytesToHex(pub), '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798');
+  assert.equal(publicKeyFromPrivate(new Uint8Array(32)), null, 'zero scalar refused');
 });

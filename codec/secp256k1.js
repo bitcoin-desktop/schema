@@ -189,6 +189,17 @@ function compress(point) {
   return out;
 }
 
+// Compressed public key for a 32-byte scalar — pure public curve math
+// (the schema stays verify-only: no signing, nonces, or key generation).
+export function publicKeyFromPrivate(priv32) {
+  const d = bytesToBig(priv32);
+  if (d <= 0n || d >= N) return null;
+  const Q = jMul([GX, GY, 1n], d);
+  if (!Q) return null;
+  const zi = inv(Q[2], P);
+  return compress([mod(Q[0] * zi * zi), mod(Q[1] * zi * zi * zi)]);
+}
+
 // CKDpub child key: point(IL) + Kpar. Returns compressed bytes or null on
 // the (negligible-probability) invalid cases BIP 32 says to skip.
 export function ckdPubKey(parentPub33, il32) {
