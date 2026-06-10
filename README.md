@@ -1,6 +1,6 @@
 # Bitcoin Schema
 
-**v0.0.4** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.5** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
@@ -9,7 +9,8 @@ and (eventually) declarative validation rules in the spirit of
 **Live:** https://bitcoin-desktop.github.io/schema/ ·
 **Apps:** [transaction decoder](https://bitcoin-desktop.github.io/schema/apps/tx.html) ·
 [header chain verifier](https://bitcoin-desktop.github.io/schema/apps/headers.html) ·
-[SPV proof verifier](https://bitcoin-desktop.github.io/schema/apps/spv.html)
+[SPV proof verifier](https://bitcoin-desktop.github.io/schema/apps/spv.html) ·
+[pruned block validator](https://bitcoin-desktop.github.io/schema/apps/blocks.html)
 
 > Independent community project; not affiliated with Bitcoin Core.
 
@@ -54,8 +55,8 @@ Strict one-way dependencies (Hornet-style): a module may only reference modules 
 | module | status | contents |
 |---|---|---|
 | `core` | **shipped** | Block, BlockHeader, Transaction, TransactionInput, TransactionOutput, OutPoint, Witness — full wire annotations + derivations |
-| `chain` | **partial** | NetworkParams + the mainnet instance (powLimit, retarget interval, timespans, magic). Planned: UTXO set, mempool, deployments |
-| `validate` | **partial** | the `header` and `spv` phase rulesets as data, with Bitcoin Core error codes. Planned: transaction and block phases |
+| `chain` | **partial** | NetworkParams + mainnet instance (consensus constants, address encodings, buried-deployment heights), Coin (UTXO entry). Planned: mempool, BIP 9 deployments |
+| `validate` | **partial** | five phase rulesets as data (`header`, `spv`, `transaction`, `block`, `block-context`) with Bitcoin Core error codes and activation gating. Planned: script execution |
 | `proof` | **partial** | MerkleBlock / partial merkle tree (BIP 37) with full wire annotations. Planned: compact filters (BIP 157/158) |
 | `script` | **partial** | full Opcode enumeration (112 named opcodes with categories, disabled flags, BIPs), ScriptType templates as data with address-encoding rules (base58check, bech32, bech32m), SighashType. Planned: tapscript trees, descriptors, script execution |
 | `p2p` | planned | message envelope and the wire messages |
@@ -78,7 +79,12 @@ Each milestone is a working artifact, not just more schema:
 2. **SPV** ✅ (v0.0.3) — verify transaction inclusion with raw BIP 37 merkle proofs,
    decoded and checked in the browser: [apps/spv.html](https://bitcoin-desktop.github.io/schema/apps/spv.html).
    Compact filters (BIP 157/158) to follow.
-3. **Pruned node** — full validation with UTXO set evolution, pruned storage.
+3. **Pruned node** ✅ (v0.0.5) — full structural + contextual validation over a hard-capped
+   window of **at most 6 blocks**, evolving a UTXO set, satoshi-exact fees and coinbase checks,
+   activation-gated rules (BIP 34, witness commitment), in the browser:
+   [apps/blocks.html](https://bitcoin-desktop.github.io/schema/apps/blocks.html).
+   Rules whose context was pruned away are *skipped and say so*. Script/signature execution
+   is the stated remaining gap.
 4. **Full node** — `p2p` + `mine`: relay, mempool, block template construction.
 
 ## Using the codec

@@ -23,6 +23,7 @@
     "phase": "btcs:phase",
     "errorCode": "btcs:errorCode",
     "check": "btcs:check",
+    "activationParam": "btcs:activationParam",
     "rules": { "@id": "btcs:rules", "@container": "@list" },
     "valueType": "btcs:valueType",
     "module": { "@id": "btcs:module", "@type": "@id" },
