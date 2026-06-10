@@ -106,10 +106,21 @@ export class BlockEngine {
       'btc:rule-blockctx-scripts': ({ spending }) => {
         if (!this.interpreter) return null;
         let unsupported = 0;
-        for (const { tx, inIndex, prevout } of spending.resolvedInputs) {
-          const v = this.interpreter.verifyInput(tx, inIndex, prevout);
-          if (v.ok === false) return false;
-          if (v.ok === null) unsupported++;
+        const byTx = new Map();
+        for (const ri of spending.resolvedInputs) {
+          if (!byTx.has(ri.tx)) byTx.set(ri.tx, new Map());
+          byTx.get(ri.tx).set(ri.inIndex, ri.prevout);
+        }
+        for (const [tx, resolved] of byTx) {
+          // taproot sighash commits to every input's prevout, so the full
+          // array is only available when the whole tx resolved
+          const allPrevouts = resolved.size === tx.inputs.length
+            ? tx.inputs.map((_, i) => resolved.get(i)) : null;
+          for (const [inIndex, prevout] of resolved) {
+            const v = this.interpreter.verifyInput(tx, inIndex, prevout, allPrevouts);
+            if (v.ok === false) return false;
+            if (v.ok === null) unsupported++;
+          }
         }
         return (spending.valueUnresolved > 0 || unsupported > 0) ? null : true;
       },

@@ -5,7 +5,7 @@
       "@id": "btc:validate",
       "@type": "Module",
       "label": "validate",
-      "version": "0.0.7",
+      "version": "0.0.8",
       "comment": "Validation rules as data, in the spirit of Hornet Node's formal consensus specification: ordered rulesets of pure checks, each enforcing a single invariant and naming a typed error. Error codes match Bitcoin Core's reject reasons so results are comparable across implementations.",
       "layer": "rules"
     },
@@ -317,7 +317,7 @@
           "@type": "ValidationRule",
           "label": "scripts",
           "errorCode": "mandatory-script-verify-flag-failed",
-          "comment": "Every resolvable non-coinbase input's unlocking script (and witness) must satisfy its prevout's locking script, including real ECDSA signature verification with legacy or BIP 143 sighash. Inputs whose prevouts were pruned away, and taproot inputs (Schnorr/BIP 341 not yet implemented), skip honestly.",
+          "comment": "Every resolvable non-coinbase input's unlocking script (and witness) must satisfy its prevout's locking script, with real signature verification: ECDSA for legacy/segwit-v0 paths (legacy and BIP 143 sighash) and Schnorr for taproot key and script paths (BIP 340/341/342). The only honest skips remaining are pruned-away prevouts (taproot additionally needs every input's prevout, as its sighash commits to all of them) and unknown future witness/leaf versions.",
           "check": "every(resolvedInputs, executeScripts(input, prevout) == valid)"
         }
       ]

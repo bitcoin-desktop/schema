@@ -10,8 +10,8 @@
 // OP_CODESEPARATOR is a no-op (scriptCode is the full executing script)
 // and signature pushes are not FindAndDelete'd from legacy scriptCode.
 
-import { sha256, dsha256, sha1, ripemd160, hash160, bytesToHex, hexToBytes } from './hash.js';
-import { parsePubkey, parseDerSignature, verifyEcdsa } from './secp256k1.js';
+import { sha256, dsha256, sha1, ripemd160, hash160, bytesToHex, hexToBytes, taggedHash } from './hash.js';
+import { parsePubkey, parseDerSignature, verifyEcdsa, verifySchnorr, checkTapTweak } from './secp256k1.js';
 
 class ScriptError extends Error {}
 const fail = (msg) => { throw new ScriptError(msg); };
@@ -125,7 +125,76 @@ export class ScriptInterpreter {
     return dsha256(cat(w));
   }
 
+  // BIP 341 signature message. Single SHA-256 hashing throughout (not double),
+  // wrapped in the TapSighash tag. Commits to every input's amount AND
+  // scriptPubKey — hence `prevouts` is the full per-input array.
+  sighashTaproot(tx, inIndex, prevouts, hashType, { annex = null, leafHash = null } = {}) {
+    if (![0x00, 0x01, 0x02, 0x03, 0x81, 0x82, 0x83].includes(hashType)) fail('invalid taproot sighash type');
+    const anyone = hashType & 0x80;
+    const base = hashType & 0x03; // 0 = DEFAULT (ALL semantics)
+    const u8 = (v) => Uint8Array.of(v);
+    const u32 = (v) => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v, true); return b; };
+    const i64 = (v) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigInt64(0, BigInt(v), true); return b; };
+    const varbytes = (bytes) => {
+      if (bytes.length >= 0xfd) fail('oversized script in sighash');
+      const b = new Uint8Array(1 + bytes.length); b[0] = bytes.length; b.set(bytes, 1);
+      return b;
+    };
+    const cat = (arrs) => {
+      const out = new Uint8Array(arrs.reduce((s, a) => s + a.length, 0));
+      let p = 0; for (const a of arrs) { out.set(a, p); p += a.length; }
+      return out;
+    };
+    const outpoint = (inp) => cat([hexToBytes(inp.prevout.txid).reverse(), u32(inp.prevout.vout)]);
+
+    const parts = [u8(0x00), u8(hashType), u32(tx.version), u32(tx.lockTime)];
+    if (!anyone) {
+      parts.push(sha256(cat(tx.inputs.map(outpoint))));
+      parts.push(sha256(cat(prevouts.map((p) => i64(p.value)))));
+      parts.push(sha256(cat(prevouts.map((p) => varbytes(hexToBytes(p.scriptPubKey))))));
+      parts.push(sha256(cat(tx.inputs.map((i) => u32(i.sequence)))));
+    }
+    if (base !== 2 && base !== 3) {
+      parts.push(sha256(cat(tx.outputs.map((o) => this.codec.encode('TransactionOutput', o)))));
+    }
+    parts.push(u8((leafHash ? 2 : 0) + (annex ? 1 : 0))); // spend_type
+    if (anyone) {
+      parts.push(outpoint(tx.inputs[inIndex]), i64(prevouts[inIndex].value),
+        varbytes(hexToBytes(prevouts[inIndex].scriptPubKey)), u32(tx.inputs[inIndex].sequence));
+    } else {
+      parts.push(u32(inIndex));
+    }
+    if (annex) parts.push(sha256(varbytes(annex)));
+    if (base === 3) {
+      if (inIndex >= tx.outputs.length) fail('sighash single without matching output');
+      parts.push(sha256(this.codec.encode('TransactionOutput', tx.outputs[inIndex])));
+    }
+    if (leafHash) parts.push(leafHash, u8(0x00), u32(0xffffffff));
+    return taggedHash('TapSighash', cat(parts));
+  }
+
+  // Tapscript signature check (BIP 342): an empty signature pushes false;
+  // a non-empty INVALID signature fails the whole script; a non-32-byte
+  // public key is an "unknown key type" and succeeds (upgrade hook).
+  #checkSigTapscript(sigBytes, pubBytes, ctx) {
+    if (pubBytes.length === 0) fail('empty pubkey');
+    if (sigBytes.length === 0) return false;
+    if (ctx.budget) { ctx.budget.n -= 50; if (ctx.budget.n < 0) fail('sigops budget exceeded'); }
+    if (pubBytes.length !== 32) return true; // unknown pubkey type
+    let hashType = 0x00, sig = sigBytes;
+    if (sigBytes.length === 65) {
+      hashType = sigBytes[64];
+      if (hashType === 0x00) fail('explicit SIGHASH_DEFAULT in 65-byte signature');
+      sig = sigBytes.subarray(0, 64);
+    } else if (sigBytes.length !== 64) fail('bad schnorr signature size');
+    const msg = this.sighashTaproot(ctx.tx, ctx.inIndex, ctx.prevouts, hashType,
+      { annex: ctx.annex, leafHash: ctx.leafHash });
+    if (!verifySchnorr(msg, sig, pubBytes)) fail('invalid schnorr signature');
+    return true;
+  }
+
   #checkSig(sigBytes, pubBytes, ctx) {
+    if (ctx.sigVersion === 'tapscript') return this.#checkSigTapscript(sigBytes, pubBytes, ctx);
     if (sigBytes.length === 0) return false;
     const hashType = sigBytes[sigBytes.length - 1];
     const sig = parseDerSignature(sigBytes.subarray(0, sigBytes.length - 1));
@@ -156,12 +225,24 @@ export class ScriptInterpreter {
       OP_NOP: () => {}, OP_CODESEPARATOR: () => {},
       OP_IF: (s, ctx, exec, _, executing) => {
         let f = false;
-        if (executing) f = truthy(pop(s));
+        if (executing) {
+          const v = pop(s);
+          if (ctx.sigVersion === 'tapscript' && !(v.length === 0 || (v.length === 1 && v[0] === 1))) {
+            fail('minimal IF'); // BIP 342: condition must be exactly empty or 0x01
+          }
+          f = truthy(v);
+        }
         exec.push(f);
       },
       OP_NOTIF: (s, ctx, exec, _, executing) => {
         let f = false;
-        if (executing) f = !truthy(pop(s));
+        if (executing) {
+          const v = pop(s);
+          if (ctx.sigVersion === 'tapscript' && !(v.length === 0 || (v.length === 1 && v[0] === 1))) {
+            fail('minimal IF');
+          }
+          f = !truthy(v);
+        }
         exec.push(f);
       },
       OP_ELSE: (s, ctx, exec) => {
@@ -227,8 +308,21 @@ export class ScriptInterpreter {
         const pub = pop(s), sig = pop(s);
         if (!this.#checkSig(sig, pub, ctx)) fail('checksigverify');
       },
-      OP_CHECKMULTISIG: (s, ctx) => s.push(boolBytes(this.#checkMultisig(s, ctx))),
-      OP_CHECKMULTISIGVERIFY: (s, ctx) => { if (!this.#checkMultisig(s, ctx)) fail('checkmultisigverify'); },
+      OP_CHECKMULTISIG: (s, ctx) => {
+        if (ctx.sigVersion === 'tapscript') fail('CHECKMULTISIG disabled in tapscript');
+        s.push(boolBytes(this.#checkMultisig(s, ctx)));
+      },
+      OP_CHECKMULTISIGVERIFY: (s, ctx) => {
+        if (ctx.sigVersion === 'tapscript') fail('CHECKMULTISIG disabled in tapscript');
+        if (!this.#checkMultisig(s, ctx)) fail('checkmultisigverify');
+      },
+      OP_CHECKSIGADD: (s, ctx) => {
+        if (ctx.sigVersion !== 'tapscript') fail('CHECKSIGADD outside tapscript');
+        const pub = pop(s);
+        const n = numDecode(pop(s));
+        const sig = pop(s);
+        s.push(numEncode(n + (this.#checkSigTapscript(sig, pub, ctx) ? 1 : 0)));
+      },
 
       OP_CHECKLOCKTIMEVERIFY: (s, ctx) => {
         const n = numDecode(peek(s), 5);
@@ -284,6 +378,13 @@ export class ScriptInterpreter {
       ctx.alt = ctx.alt ?? [];
       ctx.scriptCode = ctx.scriptCode ?? scriptHex;
       const ops = this.scriptEngine.parse(scriptHex);
+      if (ctx.sigVersion === 'tapscript') {
+        // BIP 342: OP_SUCCESSx is decided at parse time, before execution
+        for (const op of ops) {
+          if (op.error) fail(op.error);
+          if (op.data == null && this.#isOpSuccess(op.code)) return { ok: true, opSuccess: true };
+        }
+      }
       const exec = [];
       let opCount = 0;
       for (const op of ops) {
@@ -315,6 +416,15 @@ export class ScriptInterpreter {
     return ['OP_CAT', 'OP_SUBSTR', 'OP_LEFT', 'OP_RIGHT', 'OP_INVERT', 'OP_AND', 'OP_OR',
       'OP_XOR', 'OP_2MUL', 'OP_2DIV', 'OP_MUL', 'OP_DIV', 'OP_MOD', 'OP_LSHIFT', 'OP_RSHIFT',
       'OP_VERIF', 'OP_VERNOTIF'].includes(name);
+  }
+
+  // BIP 342 OP_SUCCESSx set: these byte values make a tapscript
+  // unconditionally valid, reserving them for future upgrades.
+  #isOpSuccess(code) {
+    return code === 80 || code === 98
+      || (code >= 126 && code <= 129) || (code >= 131 && code <= 134)
+      || code === 137 || code === 138 || code === 141 || code === 142
+      || (code >= 149 && code <= 153) || (code >= 187 && code <= 254);
   }
 
   #runPair(scriptSigHex, scriptPubKeyHex, ctx) {
@@ -357,15 +467,90 @@ export class ScriptInterpreter {
       ? { ok: true } : { ok: false, error: 'p2wsh evaluated false' };
   }
 
-  // Verify one input against its prevout. Returns {ok: true|false|null, ...};
-  // null = honest unsupported (taproot / future witness versions).
-  verifyInput(tx, inIndex, prevout) {
+  // BIP 341 taproot spend verification: key path (one Schnorr signature
+  // with the tweaked output key) or script path (reveal a leaf script and
+  // a control block proving its commitment, then execute as tapscript).
+  #verifyTaproot(tx, inIndex, prevouts) {
+    const program = hexToBytes(prevouts[inIndex].scriptPubKey.slice(4));
+    const witness = (tx.witness?.[inIndex] ?? []).map(hexToBytes);
+    if (!witness.length) return { ok: false, error: 'empty taproot witness' };
+
+    // total serialized witness size, for the tapscript sigops budget
+    const witnessSize = witness.reduce((s, w) =>
+      s + w.length + (w.length < 0xfd ? 1 : w.length <= 0xffff ? 3 : 5), 1);
+
+    let annex = null;
+    if (witness.length >= 2 && witness[witness.length - 1][0] === 0x50) annex = witness.pop();
+
+    if (witness.length === 1) { // key path
+      const raw = witness[0];
+      let hashType = 0x00, sig = raw;
+      if (raw.length === 65) {
+        hashType = raw[64];
+        if (hashType === 0x00) return { ok: false, error: 'explicit SIGHASH_DEFAULT in 65-byte signature' };
+        sig = raw.subarray(0, 64);
+      } else if (raw.length !== 64) return { ok: false, error: 'bad key-path signature size' };
+      try {
+        const msg = this.sighashTaproot(tx, inIndex, prevouts, hashType, { annex });
+        return verifySchnorr(msg, sig, program)
+          ? { ok: true, path: 'key' } : { ok: false, error: 'invalid key-path schnorr signature' };
+      } catch (e) {
+        if (e instanceof ScriptError) return { ok: false, error: e.message };
+        throw e;
+      }
+    }
+
+    // script path
+    const control = witness.pop();
+    const script = witness.pop();
+    if (control.length < 33 || (control.length - 33) % 32 !== 0 || control.length > 33 + 32 * 128) {
+      return { ok: false, error: 'bad control block size' };
+    }
+    const leafVersion = control[0] & 0xfe;
+    const parity = control[0] & 0x01;
+    const internalKey = control.subarray(1, 33);
+    const sizePrefix = script.length < 0xfd
+      ? Uint8Array.of(script.length)
+      : Uint8Array.of(0xfd, script.length & 0xff, script.length >> 8);
+    const leafHash = taggedHash('TapLeaf', Uint8Array.of(leafVersion), sizePrefix, script);
+    let k = leafHash;
+    for (let i = 33; i < control.length; i += 32) {
+      const e = control.subarray(i, i + 32);
+      const less = bytesToHex(k) < bytesToHex(e);
+      k = less ? taggedHash('TapBranch', k, e) : taggedHash('TapBranch', e, k);
+    }
+    if (!checkTapTweak(internalKey, k, program, parity)) {
+      return { ok: false, error: 'control block commitment mismatch' };
+    }
+    if (leafVersion !== 0xc0) return { ok: null, reason: 'unknown tapleaf version', path: 'script' };
+
+    const stack = witness; // remaining items are the initial stack
+    const scriptHex = bytesToHex(script);
+    const ctx = {
+      tx, inIndex, prevouts, amount: prevouts[inIndex].value,
+      sigVersion: 'tapscript', leafHash, annex, budget: { n: 50 + witnessSize },
+    };
+    const r = this.execute(scriptHex, stack, ctx);
+    if (!r.ok) return { ...r, path: 'script' };
+    if (r.opSuccess) return { ok: true, path: 'script' };
+    return (stack.length === 1 && truthy(stack[0]))
+      ? { ok: true, path: 'script' } : { ok: false, error: 'tapscript evaluated false', path: 'script' };
+  }
+
+  // Verify one input against its prevout. For taproot, `allPrevouts` (one
+  // {value, scriptPubKey} per input, in order) is required because the
+  // BIP 341 sighash commits to all of them. Returns {ok: true|false|null};
+  // null = honestly unverifiable (missing prevouts / future versions).
+  verifyInput(tx, inIndex, prevout, allPrevouts = null) {
     const spk = prevout.scriptPubKey;
     const type = this.scriptEngine.classify(spk).type;
     const input = tx.inputs[inIndex];
     const ctx = { tx, inIndex, amount: prevout.value, sigVersion: 'legacy' };
 
-    if (type === 'p2tr') return { ok: null, reason: 'taproot not yet supported', type };
+    if (type === 'p2tr') {
+      if (!allPrevouts) return { ok: null, reason: 'taproot needs every input prevout resolved', type };
+      return { ...this.#verifyTaproot(tx, inIndex, allPrevouts), type };
+    }
     if (type === 'witness-unknown') return { ok: null, reason: 'unknown witness version', type };
     if (type === 'p2wpkh' || type === 'p2wsh') {
       const program = this.scriptEngine.parse(spk)[1].data;
