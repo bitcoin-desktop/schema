@@ -1,0 +1,32 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "btc": "https://bitcoin-desktop.github.io/schema/",
+    "btcs": "https://bitcoin-desktop.github.io/schema/meta#",
+    "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+    "schema": "https://schema.org/",
+
+    "label": "rdfs:label",
+    "comment": "rdfs:comment",
+    "seeAlso": { "@id": "rdfs:seeAlso", "@type": "@id" },
+    "subClassOf": { "@id": "rdfs:subClassOf", "@type": "@id" },
+
+    "version": "schema:version",
+    "Module": "btcs:Module",
+    "ConsensusStruct": "btcs:ConsensusStruct",
+    "module": { "@id": "btcs:module", "@type": "@id" },
+    "layer": "btcs:layer",
+    "bip": "btcs:bip",
+
+    "fields": { "@id": "btcs:fields", "@container": "@list" },
+    "derived": { "@id": "btcs:derived", "@container": "@list" },
+    "property": { "@id": "btcs:property", "@type": "@id" },
+    "wireType": "btcs:wireType",
+    "itemType": { "@id": "btcs:itemType", "@type": "@id" },
+    "structType": { "@id": "btcs:structType", "@type": "@id" },
+    "presentIf": "btcs:presentIf",
+    "constValue": "btcs:constValue",
+    "wireSize": "btcs:wireSize",
+    "derivation": "btcs:derivation"
+  }
+}

@@ -1,0 +1,329 @@
+{
+  "@context": "../context.jsonld",
+  "@graph": [
+    {
+      "@id": "btc:core",
+      "@type": "Module",
+      "label": "core",
+      "version": "0.0.1",
+      "comment": "Consensus-critical structures of the Bitcoin protocol. Every field tagged with a wireType exists in the canonical byte serialization and is covered by proof-of-work. Derived fields are computed deterministically from consensus bytes and are never serialized.",
+      "layer": "consensus"
+    },
+
+    {
+      "@id": "btc:OutPoint",
+      "@type": "ConsensusStruct",
+      "module": "btc:core",
+      "label": "OutPoint",
+      "comment": "A reference to a specific output of a previous transaction. Exactly 36 bytes on the wire.",
+      "wireSize": 36,
+      "fields": [
+        {
+          "property": "btc:txid",
+          "label": "txid",
+          "comment": "Transaction identifier of the transaction containing the output being spent. Serialized as 32 bytes in internal (little-endian) order; displayed reversed as hex.",
+          "wireType": "hash256"
+        },
+        {
+          "property": "btc:vout",
+          "label": "vout",
+          "comment": "Zero-based index of the output within the referenced transaction.",
+          "wireType": "u32le"
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:TransactionInput",
+      "@type": "ConsensusStruct",
+      "module": "btc:core",
+      "label": "TransactionInput",
+      "comment": "An input of a transaction: a pointer to the coin being spent, the unlocking script, and the sequence number. A coinbase input references the null outpoint (all-zero txid, vout 0xffffffff).",
+      "fields": [
+        {
+          "property": "btc:prevout",
+          "label": "prevout",
+          "comment": "The outpoint identifying the transaction output being spent.",
+          "wireType": "struct",
+          "structType": "btc:OutPoint"
+        },
+        {
+          "property": "btc:scriptSig",
+          "label": "scriptSig",
+          "comment": "Unlocking script satisfying the conditions of the referenced output's scriptPubKey. Empty for native segwit spends. Variable length, prefixed by a CompactSize count.",
+          "wireType": "varbytes"
+        },
+        {
+          "property": "btc:sequence",
+          "label": "sequence",
+          "comment": "Sequence number. Used for relative lock-time (BIP 68) and opt-in replace-by-fee signalling (BIP 125).",
+          "wireType": "u32le",
+          "bip": [68, 125]
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:TransactionOutput",
+      "@type": "ConsensusStruct",
+      "module": "btc:core",
+      "label": "TransactionOutput",
+      "comment": "An output of a transaction: an amount and the locking script that encumbers it. An unspent output (UTXO) is the fundamental unit of bitcoin ownership.",
+      "fields": [
+        {
+          "property": "btc:value",
+          "label": "value",
+          "comment": "Amount in satoshis (1 BTC = 100,000,000 satoshis). Signed 64-bit little-endian on the wire; consensus-valid range is 0 to 21,000,000 BTC.",
+          "wireType": "i64le"
+        },
+        {
+          "property": "btc:scriptPubKey",
+          "label": "scriptPubKey",
+          "comment": "Locking script defining the conditions under which this output may be spent. Variable length, prefixed by a CompactSize count.",
+          "wireType": "varbytes"
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:Witness",
+      "@type": "ConsensusStruct",
+      "module": "btc:core",
+      "label": "Witness",
+      "comment": "The segregated witness for a single input: a stack of byte vectors consumed by script execution (BIP 141). On the wire each witness is a CompactSize item count followed by that many CompactSize-prefixed byte vectors. Witness data is committed to by wtxid and the witness commitment in the coinbase, but excluded from txid.",
+      "bip": [141],
+      "fields": [
+        {
+          "property": "btc:stack",
+          "label": "stack",
+          "comment": "Ordered stack items, bottom first, each an arbitrary byte vector.",
+          "wireType": "vec",
+          "itemType": "varbytes"
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:Transaction",
+      "@type": "ConsensusStruct",
+      "module": "btc:core",
+      "label": "Transaction",
+      "comment": "A transfer of bitcoin value: a list of inputs spending existing outputs and a list of new outputs. Two serializations exist: legacy (txid, excludes marker/flag/witness) and full segwit (wtxid, BIP 144).",
+      "fields": [
+        {
+          "property": "btc:version",
+          "label": "version",
+          "comment": "Transaction format version. Version 2 enables BIP 68 relative lock-time semantics.",
+          "wireType": "i32le",
+          "bip": [68]
+        },
+        {
+          "property": "btc:marker",
+          "label": "marker",
+          "comment": "Segwit marker byte, always 0x00. Present only in the segwit serialization (BIP 144). Distinguishable from legacy because a legacy transaction cannot have zero inputs.",
+          "wireType": "u8",
+          "presentIf": "segwit",
+          "constValue": 0,
+          "bip": [144]
+        },
+        {
+          "property": "btc:flag",
+          "label": "flag",
+          "comment": "Segwit flag byte, currently always 0x01. Present only in the segwit serialization.",
+          "wireType": "u8",
+          "presentIf": "segwit",
+          "constValue": 1,
+          "bip": [144]
+        },
+        {
+          "property": "btc:inputs",
+          "label": "inputs",
+          "comment": "Transaction inputs, prefixed by a CompactSize count. Must be non-empty.",
+          "wireType": "vec",
+          "itemType": "btc:TransactionInput"
+        },
+        {
+          "property": "btc:outputs",
+          "label": "outputs",
+          "comment": "Transaction outputs, prefixed by a CompactSize count. Must be non-empty.",
+          "wireType": "vec",
+          "itemType": "btc:TransactionOutput"
+        },
+        {
+          "property": "btc:witness",
+          "label": "witness",
+          "comment": "One witness per input, in input order. NOT prefixed by a count: the number of witnesses equals the number of inputs. Present only in the segwit serialization.",
+          "wireType": "witness",
+          "itemType": "btc:Witness",
+          "presentIf": "segwit",
+          "bip": [141, 144]
+        },
+        {
+          "property": "btc:lockTime",
+          "label": "lockTime",
+          "comment": "Earliest time the transaction may be mined: a block height if below 500,000,000, otherwise a Unix timestamp. Only enforced if some input has a non-final sequence (BIP 65 for script-level enforcement).",
+          "wireType": "u32le",
+          "bip": [65]
+        }
+      ],
+      "derived": [
+        {
+          "property": "btc:txid",
+          "label": "txid",
+          "comment": "Transaction identifier: double-SHA256 of the legacy serialization (witness excluded), displayed byte-reversed as hex.",
+          "derivation": "reverseHex(dsha256(serializeLegacy(this)))"
+        },
+        {
+          "property": "btc:wtxid",
+          "label": "wtxid",
+          "comment": "Witness transaction identifier: double-SHA256 of the full segwit serialization. Equal to txid for transactions with no witness data.",
+          "derivation": "reverseHex(dsha256(serialize(this)))"
+        },
+        {
+          "property": "btc:size",
+          "label": "size",
+          "comment": "Size in bytes of the full serialization.",
+          "derivation": "byteLength(serialize(this))"
+        },
+        {
+          "property": "btc:weight",
+          "label": "weight",
+          "comment": "Block weight contribution (BIP 141): 3 × legacy size + full size. The consensus block limit is 4,000,000 weight units.",
+          "derivation": "3 * byteLength(serializeLegacy(this)) + byteLength(serialize(this))",
+          "bip": [141]
+        },
+        {
+          "property": "btc:vsize",
+          "label": "vsize",
+          "comment": "Virtual size in vbytes: weight / 4, rounded up. The unit used for fee rates.",
+          "derivation": "ceil(weight(this) / 4)"
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:BlockHeader",
+      "@type": "ConsensusStruct",
+      "module": "btc:core",
+      "label": "BlockHeader",
+      "comment": "The 80-byte block header: the structure actually hashed for proof-of-work. A headers-only chain is sufficient to verify cumulative work and anchor SPV proofs.",
+      "wireSize": 80,
+      "fields": [
+        {
+          "property": "btc:version",
+          "label": "version",
+          "comment": "Block version. Since BIP 9, version bits signal readiness for soft forks.",
+          "wireType": "i32le",
+          "bip": [9, 34]
+        },
+        {
+          "property": "btc:prevBlockHash",
+          "label": "prevBlockHash",
+          "comment": "Hash of the previous block header, forming the chain. All zeros for the genesis block.",
+          "wireType": "hash256"
+        },
+        {
+          "property": "btc:merkleRoot",
+          "label": "merkleRoot",
+          "comment": "Root of the merkle tree over all transaction txids in the block, committing the header to the block's transactions.",
+          "wireType": "hash256"
+        },
+        {
+          "property": "btc:time",
+          "label": "time",
+          "comment": "Block timestamp as Unix time. Must be greater than the median time of the previous 11 blocks and no more than 2 hours in the future.",
+          "wireType": "u32le"
+        },
+        {
+          "property": "btc:bits",
+          "label": "bits",
+          "comment": "Compact (nBits) encoding of the proof-of-work target threshold the block hash must not exceed.",
+          "wireType": "u32le"
+        },
+        {
+          "property": "btc:nonce",
+          "label": "nonce",
+          "comment": "Arbitrary value miners vary to search for a hash satisfying the target.",
+          "wireType": "u32le"
+        }
+      ],
+      "derived": [
+        {
+          "property": "btc:hash",
+          "label": "hash",
+          "comment": "Block hash: double-SHA256 of the 80 serialized header bytes, displayed byte-reversed as hex. Must be numerically below the target encoded by bits.",
+          "derivation": "reverseHex(dsha256(serialize(this)))"
+        },
+        {
+          "property": "btc:target",
+          "label": "target",
+          "comment": "The 256-bit proof-of-work target threshold expanded from the compact bits encoding.",
+          "derivation": "expandCompact(bits)"
+        },
+        {
+          "property": "btc:work",
+          "label": "work",
+          "comment": "Expected work to find this block: 2^256 / (target + 1). Summed along a chain to determine the best (most-work) chain.",
+          "derivation": "2^256 / (target(this) + 1)"
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:Block",
+      "@type": "ConsensusStruct",
+      "module": "btc:core",
+      "label": "Block",
+      "comment": "A full block: an 80-byte header followed by the block's transactions. The first transaction must be the coinbase.",
+      "fields": [
+        {
+          "property": "btc:header",
+          "label": "header",
+          "comment": "The block header.",
+          "wireType": "struct",
+          "structType": "btc:BlockHeader"
+        },
+        {
+          "property": "btc:transactions",
+          "label": "transactions",
+          "comment": "The block's transactions, prefixed by a CompactSize count. The first must be the coinbase transaction.",
+          "wireType": "vec",
+          "itemType": "btc:Transaction"
+        }
+      ],
+      "derived": [
+        {
+          "property": "btc:hash",
+          "label": "hash",
+          "comment": "The block hash, derived from the header alone.",
+          "derivation": "hash(header)"
+        },
+        {
+          "property": "btc:txCount",
+          "label": "txCount",
+          "comment": "Number of transactions in the block.",
+          "derivation": "length(transactions)"
+        },
+        {
+          "property": "btc:merkleRoot",
+          "label": "merkleRoot",
+          "comment": "Merkle root recomputed from the transactions' txids; block is invalid unless it equals header.merkleRoot.",
+          "derivation": "merkleRoot(map(transactions, txid))"
+        },
+        {
+          "property": "btc:size",
+          "label": "size",
+          "comment": "Size in bytes of the full block serialization.",
+          "derivation": "byteLength(serialize(this))"
+        },
+        {
+          "property": "btc:weight",
+          "label": "weight",
+          "comment": "Total block weight (BIP 141). Consensus limit: 4,000,000 weight units.",
+          "derivation": "sum(map(transactions, weight)) + 4 * (byteLength(serialize(header)) + byteLength(varint(txCount)))",
+          "bip": [141]
+        }
+      ]
+    }
+  ]
+}

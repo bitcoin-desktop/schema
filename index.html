@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bitcoin Schema — a canonical model of the Bitcoin protocol</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --fg: #e6edf3; --muted: #8b949e; --accent: #f7931a; --link: #58a6ff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  header h1 { margin: 0; font-size: 2rem; }
+  header h1 span { color: var(--accent); }
+  header p.tag { color: var(--muted); margin: .4rem 0 0; }
+  .pill { display: inline-block; font: 12px var(--mono); color: var(--accent);
+          border: 1px solid var(--accent); border-radius: 999px; padding: 0 .6em; margin-left: .5em;
+          vertical-align: middle; }
+  nav { margin: 1.2rem 0 0; font-size: .95rem; }
+  nav a { color: var(--link); text-decoration: none; margin-right: 1.2em; }
+  nav a:hover { text-decoration: underline; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+          padding: 1.1rem 1.3rem; margin-top: 1.5rem; }
+  .card h2 { margin: 0 0 .2rem; font-size: 1.25rem; }
+  .card h2 a { color: var(--fg); text-decoration: none; }
+  .meta { font: 12px var(--mono); color: var(--muted); margin-bottom: .5rem; }
+  .meta b { color: var(--accent); font-weight: 600; }
+  .comment { color: var(--muted); margin: .3rem 0 .8rem; }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-top: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; border-top: none; }
+  td.name, td.type { font-family: var(--mono); white-space: nowrap; }
+  td.type { color: var(--accent); }
+  td.desc { color: var(--muted); }
+  .derived-label { color: var(--link); font: 12px var(--mono); margin: .9rem 0 .2rem; }
+  footer { margin-top: 3rem; color: var(--muted); font-size: .85rem; border-top: 1px solid var(--border); padding-top: 1rem; }
+  footer a { color: var(--link); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Bitcoin <span>Schema</span> <span class="pill" id="version">v0.0.1</span></h1>
+    <p class="tag">A canonical, machine-readable model of the Bitcoin protocol in JSON-LD —
+       structures, byte serialization, and derivations. One schema; many projections:
+       binary codec, explorer views, RDF, validation.</p>
+    <nav>
+      <a href="apps/tx.html">⚡ transaction decoder</a>
+      <a href="schema/core.jsonld">schema/core.jsonld</a>
+      <a href="context.jsonld">context.jsonld</a>
+      <a href="https://github.com/bitcoin-desktop/schema">github</a>
+    </nav>
+  </header>
+
+  <main id="classes"><p style="color:var(--muted)">Loading schema…</p></main>
+
+  <footer>
+    Every <code>wireType</code> field below exists in Bitcoin's consensus byte serialization;
+    <em>derived</em> fields are computed from those bytes and never serialized.
+    The <a href="codec/codec.js">reference codec</a> is driven entirely by this schema and
+    round-trips real mainnet blocks byte-exactly.
+    Independent community project; not affiliated with Bitcoin Core.
+  </footer>
+</div>
+<script type="module">
+  const res = await fetch('schema/core.jsonld');
+  const schema = await res.json();
+  const nodes = schema['@graph'];
+  const short = (id) => id.replace(/^btc:/, '');
+  const main = document.getElementById('classes');
+  main.innerHTML = '';
+
+  const module_ = nodes.find((n) => n['@type'] === 'Module');
+  if (module_?.version) document.getElementById('version').textContent = 'v' + module_.version;
+
+  for (const node of nodes.filter((n) => n['@type'] === 'ConsensusStruct')) {
+    const card = document.createElement('section');
+    card.className = 'card';
+    const rows = (fields, wire) => fields.map((f) => `
+      <tr>
+        <td class="name">${f.label}</td>
+        <td class="type">${wire ? (f.wireType === 'vec' ? `vec&lt;${short(f.itemType)}&gt;`
+          : f.wireType === 'struct' ? short(f.structType) : f.wireType) : 'derived'}</td>
+        <td class="desc">${wire ? (f.presentIf ? `<b style="color:var(--accent)">if ${f.presentIf}:</b> ` : '') + f.comment
+          : `<code>${f.derivation}</code><br>${f.comment}`}</td>
+      </tr>`).join('');
+    card.innerHTML = `
+      <h2>${node.label}</h2>
+      <div class="meta">consensus struct${node.wireSize ? ` · <b>${node.wireSize} bytes</b> on the wire` : ''}${node.bip ? ` · BIP ${[].concat(node.bip).join(', ')}` : ''}</div>
+      <p class="comment">${node.comment}</p>
+      <table><tr><th>field</th><th>wire type</th><th>description</th></tr>${rows(node.fields, true)}</table>
+      ${node.derived ? `<div class="derived-label">derived (computed, never serialized)</div>
+      <table><tr><th>field</th><th></th><th>derivation</th></tr>${rows(node.derived, false)}</table>` : ''}`;
+    main.appendChild(card);
+  }
+</script>
+</body>
+</html>
