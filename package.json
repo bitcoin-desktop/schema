@@ -1,11 +1,12 @@
 {
   "name": "@bitcoin-desktop/schema",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "A canonical, machine-readable model of the Bitcoin protocol in JSON-LD: structures, byte serialization, derivations, and (eventually) validation rules. Independent project; not affiliated with Bitcoin Core.",
   "type": "module",
   "main": "codec/codec.js",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "bridge": "node bridge/bridge.mjs"
   },
   "repository": {
     "type": "git",

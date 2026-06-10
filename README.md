@@ -1,6 +1,6 @@
 # Bitcoin Schema
 
-**v0.0.13** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.14** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
@@ -121,7 +121,13 @@ Each milestone is a working artifact, not just more schema:
    bit-for-bit from the live chain), cross-checks sources with divergence detection, and
    verifies transactions against its own chain:
    [apps/node.html](https://bitcoin-desktop.github.io/schema/apps/node.html).
-   Next: the p2p bridge (real network → WebSocket) and the WebRTC mesh.
+8. **The bridge** ✅ (v0.0.14) — the webtorrent-hybrid: `npm run bridge` starts a
+   zero-dependency daemon (even the WebSocket server is ours, built on our own SHA-1) that
+   handshakes with a real peer over TCP and relays schema wire messages to browser LightNodes
+   over WebSocket — genuine IBD at 2,000 headers per message (live test: a real testnet4 peer,
+   checkpoint to tip, ~1,800 headers validated in under a second). Point the
+   [light node app](https://bitcoin-desktop.github.io/schema/apps/node.html) at
+   `ws://localhost:8334`. Next: the WebRTC mesh (Nostr signaling).
 
 ## Using the codec
 
