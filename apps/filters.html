@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Compact filters — Bitcoin Schema</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de;
+    --fg: #1f2328; --muted: #57606a; --accent: #e8830c; --link: #0969da;
+    --ok: #1a7f37; --bad: #cf222e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .2rem; } h1 span { color: var(--accent); }
+  p.tag { color: var(--muted); margin: 0 0 1.2rem; }
+  a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
+  .controls { display: flex; gap: .8rem; align-items: end; flex-wrap: wrap; }
+  .controls label { font-size: .8rem; color: var(--muted); display: block; }
+  input { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+          border-radius: 8px; padding: .45rem .6rem; font: 13px var(--mono); }
+  input#address { width: 26rem; max-width: 88vw; }
+  button { background: var(--accent); color: #fff; font-weight: 600; border: none;
+           border-radius: 8px; padding: .55rem 1.4rem; cursor: pointer; font-size: 1rem; }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: wait; }
+  #status { margin-top: 1rem; font: 14px var(--mono); color: var(--muted); }
+  .summary { margin-top: 1.2rem; padding: .9rem 1.2rem; border-radius: 10px; font-weight: 600; }
+  .summary.ok { background: #dafbe1; color: var(--ok); border: 1px solid #aceebb; }
+  .summary.info { background: var(--panel); border: 1px solid var(--border); }
+  table { border-collapse: collapse; width: 100%; font-size: .87rem; margin-top: 1rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-top: 1px solid var(--border); }
+  th { color: var(--muted); border-top: none; }
+  td.mono { font-family: var(--mono); }
+  .hit { color: var(--accent); font-weight: 700; }
+  .note { color: var(--muted); font-size: .85rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Compact <span>filters</span></h1>
+  <p class="tag">BIP 158: each block compresses to a ~2% Golomb-coded digest of its scripts.
+     This app fetches a window of <b>at most 6</b> raw blocks, builds their filters with the
+     <a href="../codec/filters.js">schema engine</a> (byte-identical to the official vectors),
+     and tests your address against them — <b>the query never leaves your browser</b>.
+     A match means "fetch this block and look"; that is the whole light-client privacy model.
+     · <a href="../index.html">schema</a> · <a href="spv.html">spv</a> · <a href="blocks.html">blocks</a></p>
+
+  <div class="controls">
+    <div><label for="address">address to scan for</label>
+      <input id="address" spellcheck="false" value="1JqDybm2nWTENrHvMyafbSXXtTk5Uv5QAn"></div>
+    <div><label for="start">start height (blank = tip − 5)</label><input id="start" value="100000" style="width:8rem"></div>
+    <div><label for="count">blocks (max 6)</label><input id="count" value="6" style="width:5rem"></div>
+    <button id="go">Build filters &amp; scan</button>
+  </div>
+  <div id="status"></div>
+  <div id="out"></div>
+</div>
+<script type="module">
+  import { Codec } from '../codec/codec.js';
+  import { GcsFilter } from '../codec/filters.js';
+  import { addressToScript } from '../codec/script.js';
+  import { hexToBytes } from '../codec/hash.js';
+
+  const API = 'https://blockstream.info/api';
+  const MAX_BLOCKS = 6, MAX_PREV_FETCH = 400;
+  const $ = (id) => document.getElementById(id);
+  const load = async (p) => (await fetch(p)).json();
+  const codec = new Codec(await load('../schema/core.jsonld'));
+  const chainSchema = await load('../schema/chain.jsonld');
+  const mainnet = chainSchema['@graph'].find((n) => n['@id'] === 'btc:mainnet');
+  const gcs = new GcsFilter();
+
+  const text = async (p) => {
+    const r = await fetch(API + p);
+    if (!r.ok) throw new Error(`${p}: HTTP ${r.status}`);
+    return r.text();
+  };
+  const rawHex = async (p) => {
+    const r = await fetch(API + p);
+    if (!r.ok) throw new Error(`${p}: HTTP ${r.status}`);
+    const buf = new Uint8Array(await r.arrayBuffer());
+    let s = '';
+    for (const b of buf) s += b.toString(16).padStart(2, '0');
+    return s;
+  };
+  async function pool(items, n, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    await Promise.all(Array.from({ length: n }, async () => {
+      while (next < items.length) { const i = next++; out[i] = await fn(items[i], i); }
+    }));
+    return out;
+  }
+
+  async function run() {
+    $('go').disabled = true;
+    $('out').innerHTML = '';
+    try {
+      const script = addressToScript($('address').value.trim(), mainnet);
+      if (!script) throw new Error('not a valid mainnet address');
+      const target = hexToBytes(script);
+      const count = Math.max(1, Math.min(parseInt($('count').value || '6', 10), MAX_BLOCKS));
+      $('count').value = count;
+      const tip = parseInt(await text('/blocks/tip/height'), 10);
+      const start = $('start').value ? parseInt($('start').value, 10) : tip - MAX_BLOCKS + 1;
+      const heights = Array.from({ length: Math.min(count, tip - start + 1) }, (_, i) => start + i);
+
+      $('status').textContent = `fetching ${heights.length} raw blocks…`;
+      const hashes = await pool(heights, 6, (h) => text(`/block-height/${h}`));
+      const blocks = (await pool(hashes, 4, (hash) => rawHex(`/block/${hash}/raw`))).map((hex) => codec.decode('Block', hex));
+
+      const windowTx = new Map();
+      for (const b of blocks) for (const tx of b.transactions) windowTx.set(codec.txid(tx), tx);
+      const prevIds = [...new Set(blocks.flatMap((b) => b.transactions.slice(1)
+        .flatMap((tx) => tx.inputs.map((i) => i.prevout.txid))))].filter((id) => !windowTx.has(id));
+      const capped = prevIds.length > MAX_PREV_FETCH;
+      const toFetch = prevIds.slice(0, MAX_PREV_FETCH);
+      $('status').textContent = `resolving ${toFetch.length} prevout txs${capped ? ` (of ${prevIds.length}, capped)` : ''}…`;
+      const external = new Map(await pool(toFetch, 8, async (txid) =>
+        [txid, codec.decode('Transaction', await text(`/tx/${txid}/hex`))]));
+
+      $('status').textContent = 'building filters…';
+      let unresolved = 0;
+      const rows = blocks.map((block, i) => {
+        const prevScripts = block.transactions.slice(1).flatMap((tx) =>
+          tx.inputs.map((inp) => {
+            const prev = windowTx.get(inp.prevout.txid) ?? external.get(inp.prevout.txid);
+            if (!prev) { unresolved++; return null; }
+            return prev.outputs[inp.prevout.vout].scriptPubKey;
+          }).filter(Boolean));
+        const blockHash = codec.blockHash(block.header);
+        const key = gcs.keyFor(blockHash);
+        const filter = gcs.encode(key, gcs.basicItems(block, prevScripts));
+        const blockSize = codec.encode('Block', block).length;
+        const hit = gcs.matchAny(key, filter, [target]);
+        return { height: heights[i], blockHash, filter, blockSize, hit, txs: block.transactions.length };
+      });
+
+      const hits = rows.filter((r) => r.hit);
+      $('out').innerHTML = `
+        <div class="summary ${hits.length ? 'ok' : 'info'}">
+          ${hits.length
+            ? `✓ ${hits.length} filter match${hits.length > 1 ? 'es' : ''} — a light client would now fetch block${hits.length > 1 ? 's' : ''} ${hits.map((h) => h.height).join(', ')} and inspect ${hits.length > 1 ? 'them' : 'it'} locally`
+            : `◦ no filter matched — with ~${rows.reduce((s, r) => s + r.filter.length, 0).toLocaleString()} bytes of filters, this address is (almost certainly) not in these ${rows.length} blocks, and nobody learned what you searched for`}
+        </div>
+        <table>
+          <tr><th>height</th><th>txs</th><th>filter</th><th>block</th><th>ratio</th><th>match</th></tr>
+          ${rows.map((r) => `
+            <tr><td class="mono">${r.height}</td><td class="mono">${r.txs}</td>
+              <td class="mono">${r.filter.length.toLocaleString()} B</td>
+              <td class="mono">${r.blockSize.toLocaleString()} B</td>
+              <td class="mono">${(100 * r.filter.length / r.blockSize).toFixed(1)}%</td>
+              <td>${r.hit ? '<span class="hit">● probably here</span>' : '<span style="color:var(--muted)">—</span>'}</td></tr>`).join('')}
+        </table>
+        <p class="note">Filters are built locally from raw blocks and are byte-identical to the official
+          BIP 158 construction (per-item false-positive rate 1/784,931).
+          ${unresolved ? `⚠ ${unresolved} inputs' prevout scripts were unresolved (fetch cap) — those filters are missing the corresponding spent-script entries.` : ''}
+          The default address receives the first payment in block 100000.</p>`;
+      $('status').textContent = '';
+    } catch (e) {
+      $('status').innerHTML = `<span style="color:var(--bad)">✖ ${e.message}</span>`;
+    } finally {
+      $('go').disabled = false;
+    }
+  }
+  $('go').addEventListener('click', run);
+  run();
+</script>
+</body>
+</html>
