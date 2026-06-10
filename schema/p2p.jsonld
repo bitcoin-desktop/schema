@@ -5,7 +5,7 @@
       "@id": "btc:p2p",
       "@type": "Module",
       "label": "p2p",
-      "version": "0.0.10",
+      "version": "0.0.12",
       "comment": "The peer-to-peer wire protocol: a 24-byte envelope (magic, command, length, checksum) followed by a typed payload. Block and transaction payloads are exactly the core module's consensus structures \u2014 the network layer carries them unchanged.",
       "layer": "p2p"
     },
@@ -481,33 +481,39 @@
         },
         {
           "name": "getcfilters",
-          "comment": "Request compact filters (BIP 157). Payload struct planned.",
-          "bip": 157
+          "comment": "Request compact filters (BIP 157).",
+          "bip": 157,
+          "structType": "btc:GetCFiltersMessage"
         },
         {
           "name": "cfilter",
-          "comment": "A compact filter (BIP 157). Payload struct planned.",
-          "bip": 157
+          "comment": "A compact filter (BIP 157).",
+          "bip": 157,
+          "structType": "btc:CFilterMessage"
         },
         {
           "name": "getcfheaders",
-          "comment": "Request filter headers (BIP 157). Payload struct planned.",
-          "bip": 157
+          "comment": "Request filter headers (BIP 157).",
+          "bip": 157,
+          "structType": "btc:GetCFHeadersMessage"
         },
         {
           "name": "cfheaders",
-          "comment": "Filter headers (BIP 157). Payload struct planned.",
-          "bip": 157
+          "comment": "Filter headers (BIP 157).",
+          "bip": 157,
+          "structType": "btc:CFHeadersMessage"
         },
         {
           "name": "getcfcheckpt",
-          "comment": "Request filter checkpoints (BIP 157). Payload struct planned.",
-          "bip": 157
+          "comment": "Request filter checkpoints (BIP 157).",
+          "bip": 157,
+          "structType": "btc:GetCFCheckptMessage"
         },
         {
           "name": "cfcheckpt",
-          "comment": "Filter checkpoints (BIP 157). Payload struct planned.",
-          "bip": 157
+          "comment": "Filter checkpoints (BIP 157).",
+          "bip": 157,
+          "structType": "btc:CFCheckptMessage"
         },
         {
           "name": "wtxidrelay",
@@ -614,6 +620,176 @@
           "name": "MSG_WITNESS_BLOCK",
           "code": 1073741826,
           "comment": "Block with witness data (BIP 144)."
+        }
+      ]
+    },
+    {
+      "@id": "btc:GetCFiltersMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "GetCFiltersMessage",
+      "bip": 157,
+      "comment": "Request compact filters for a height range (max 1000).",
+      "fields": [
+        {
+          "property": "btc:filterType",
+          "label": "filterType",
+          "wireType": "u8",
+          "comment": "Filter type (0x00 = basic)."
+        },
+        {
+          "property": "btc:startHeight",
+          "label": "startHeight",
+          "wireType": "u32le",
+          "comment": "First block height."
+        },
+        {
+          "property": "btc:stopHash",
+          "label": "stopHash",
+          "wireType": "hash256",
+          "comment": "Hash of the last block in the range."
+        }
+      ]
+    },
+    {
+      "@id": "btc:CFilterMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "CFilterMessage",
+      "bip": 157,
+      "comment": "One compact filter.",
+      "fields": [
+        {
+          "property": "btc:filterType",
+          "label": "filterType",
+          "wireType": "u8",
+          "comment": "Filter type."
+        },
+        {
+          "property": "btc:blockHash",
+          "label": "blockHash",
+          "wireType": "hash256",
+          "comment": "Block the filter commits to."
+        },
+        {
+          "property": "btc:filter",
+          "label": "filter",
+          "wireType": "varbytes",
+          "comment": "The serialized GCS filter (CompactSize N + bitstream)."
+        }
+      ]
+    },
+    {
+      "@id": "btc:GetCFHeadersMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "GetCFHeadersMessage",
+      "bip": 157,
+      "comment": "Request a filter-header range (max 2000); shape shared with getcfilters.",
+      "fields": [
+        {
+          "property": "btc:filterType",
+          "label": "filterType",
+          "wireType": "u8",
+          "comment": "Filter type."
+        },
+        {
+          "property": "btc:startHeight",
+          "label": "startHeight",
+          "wireType": "u32le",
+          "comment": "First block height."
+        },
+        {
+          "property": "btc:stopHash",
+          "label": "stopHash",
+          "wireType": "hash256",
+          "comment": "Hash of the last block in the range."
+        }
+      ]
+    },
+    {
+      "@id": "btc:CFHeadersMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "CFHeadersMessage",
+      "bip": 157,
+      "comment": "Filter hashes for a range, anchored to the previous filter header \u2014 the client recomputes and compares the chain across peers.",
+      "fields": [
+        {
+          "property": "btc:filterType",
+          "label": "filterType",
+          "wireType": "u8",
+          "comment": "Filter type."
+        },
+        {
+          "property": "btc:stopHash",
+          "label": "stopHash",
+          "wireType": "hash256",
+          "comment": "Last block of the range."
+        },
+        {
+          "property": "btc:prevFilterHeader",
+          "label": "prevFilterHeader",
+          "wireType": "hash256",
+          "comment": "Filter header preceding the range."
+        },
+        {
+          "property": "btc:filterHashes",
+          "label": "filterHashes",
+          "wireType": "vec",
+          "comment": "dsha256 of each filter, in height order.",
+          "itemType": "hash256"
+        }
+      ]
+    },
+    {
+      "@id": "btc:GetCFCheckptMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "GetCFCheckptMessage",
+      "bip": 157,
+      "comment": "Request filter-header checkpoints (every 1000 blocks).",
+      "fields": [
+        {
+          "property": "btc:filterType",
+          "label": "filterType",
+          "wireType": "u8",
+          "comment": "Filter type."
+        },
+        {
+          "property": "btc:stopHash",
+          "label": "stopHash",
+          "wireType": "hash256",
+          "comment": "Hash of the last block."
+        }
+      ]
+    },
+    {
+      "@id": "btc:CFCheckptMessage",
+      "@type": "ConsensusStruct",
+      "module": "btc:p2p",
+      "label": "CFCheckptMessage",
+      "bip": 157,
+      "comment": "Filter headers at 1000-block intervals, for cheap cross-peer comparison before downloading ranges.",
+      "fields": [
+        {
+          "property": "btc:filterType",
+          "label": "filterType",
+          "wireType": "u8",
+          "comment": "Filter type."
+        },
+        {
+          "property": "btc:stopHash",
+          "label": "stopHash",
+          "wireType": "hash256",
+          "comment": "Hash of the last block."
+        },
+        {
+          "property": "btc:filterHeaders",
+          "label": "filterHeaders",
+          "wireType": "vec",
+          "comment": "Checkpoint filter headers.",
+          "itemType": "hash256"
         }
       ]
     }

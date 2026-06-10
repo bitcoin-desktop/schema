@@ -1,6 +1,6 @@
 # Bitcoin Schema
 
-**v0.0.11** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.12** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
@@ -13,7 +13,8 @@ and (eventually) declarative validation rules in the spirit of
 [pruned block validator](https://bitcoin-desktop.github.io/schema/apps/blocks.html) ·
 [block miner](https://bitcoin-desktop.github.io/schema/apps/mine.html) ·
 [p2p wire decoder](https://bitcoin-desktop.github.io/schema/apps/p2p.html) ·
-[watch-only wallet](https://bitcoin-desktop.github.io/schema/apps/wallet.html)
+[watch-only wallet](https://bitcoin-desktop.github.io/schema/apps/wallet.html) ·
+[compact filters](https://bitcoin-desktop.github.io/schema/apps/filters.html)
 
 > Independent community project; not affiliated with Bitcoin Core.
 
@@ -60,7 +61,7 @@ Strict one-way dependencies (Hornet-style): a module may only reference modules 
 | `core` | **shipped** | Block, BlockHeader, Transaction, TransactionInput, TransactionOutput, OutPoint, Witness — full wire annotations + derivations |
 | `chain` | **partial** | NetworkParams + mainnet instance (consensus constants, address encodings, buried-deployment heights), Coin (UTXO entry). Planned: mempool, BIP 9 deployments |
 | `validate` | **partial** | five phase rulesets, **31 rules** as data, at full parity with Hornet Node's declarative rule specification (header version requirements, sigop limits, tx finality, coinbase maturity included). Bitcoin Core error codes, activation gating. Planned: script execution |
-| `proof` | **partial** | MerkleBlock / partial merkle tree (BIP 37) with full wire annotations. Planned: compact filters (BIP 157/158) |
+| `proof` | **shipped** | MerkleBlock / partial merkle tree (BIP 37); compact filters (BIP 158: SipHash-2-4 + Golomb-Rice sets, byte-identical to the official vectors) with the BIP 157 filter-header chain and p2p payload structs |
 | `script` | **partial** | full Opcode enumeration, ScriptType templates as data with address-encoding rules, SighashType, ScriptLimits — plus a working [interpreter](codec/interpreter.js): per-opcode handlers, legacy + BIP 143 + BIP 341 sighash, pure-BigInt ECDSA and Schnorr, every spend path: p2pk/p2pkh/multisig/p2sh (incl. wrapped segwit)/p2wpkh/p2wsh/**p2tr key & script path** with tapscript (CHECKSIGADD, OP_SUCCESSx). Planned: descriptors |
 | `p2p` | **shipped** | the 24-byte envelope, 13 payload structs, and a 34-command enumeration mapping every command to its struct — `tx`/`block`/`merkleblock` carry the core/proof structs unchanged. The golden vector is a real mainnet handshake our engine performed over TCP, replayed byte-exactly in CI |
 | `mine` | **shipped** | BlockTemplate (getblocktemplate-shaped), coinbase construction (BIP 34 push, witness commitment, extraNonce), nonce grinding — plus testnet/signet/regtest NetworkParams instances and address *decoding* (base58check, bech32/bech32m) |
@@ -88,7 +89,7 @@ Each milestone is a working artifact, not just more schema:
    [apps/headers.html](https://bitcoin-desktop.github.io/schema/apps/headers.html).
 2. **SPV** ✅ (v0.0.3) — verify transaction inclusion with raw BIP 37 merkle proofs,
    decoded and checked in the browser: [apps/spv.html](https://bitcoin-desktop.github.io/schema/apps/spv.html).
-   Compact filters (BIP 157/158) to follow.
+   Compact filters shipped in v0.0.12.
 3. **Pruned node** ✅ (v0.0.5) — full structural + contextual validation over a hard-capped
    window of **at most 6 blocks**, evolving a UTXO set, satoshi-exact fees and coinbase checks,
    activation-gated rules (BIP 34, witness commitment), in the browser:
@@ -106,7 +107,7 @@ Each milestone is a working artifact, not just more schema:
    verack; their version/wtxidrelay/sendaddrv2/verack/sendcmpct/ping/feefilter replay
    byte-exactly). [apps/p2p.html](https://bitcoin-desktop.github.io/schema/apps/p2p.html)
    decodes any raw stream. A live socket loop (relay, mempool) is a host-environment concern —
-   browsers cannot open TCP — and remains future work, as do the BIP 152/157/155 payload structs.
+   browsers cannot open TCP — and remains future work, as do the BIP 152/155 payload structs (the BIP 157 ones shipped with compact filters in v0.0.12).
 6. **Wallet** ✅ (v0.0.11) — watch-only: derive addresses from any xpub (verified against the
    official BIP 32 chains and BIP 86 taproot vectors), decode any PSBT (all 24 official BIP 174
    vectors round-trip byte-exactly), and — the part nothing else does in 0 dependencies — extract
