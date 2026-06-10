@@ -1,6 +1,6 @@
 # Bitcoin Schema
 
-**v0.0.3** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.4** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
@@ -57,7 +57,7 @@ Strict one-way dependencies (Hornet-style): a module may only reference modules 
 | `chain` | **partial** | NetworkParams + the mainnet instance (powLimit, retarget interval, timespans, magic). Planned: UTXO set, mempool, deployments |
 | `validate` | **partial** | the `header` and `spv` phase rulesets as data, with Bitcoin Core error codes. Planned: transaction and block phases |
 | `proof` | **partial** | MerkleBlock / partial merkle tree (BIP 37) with full wire annotations. Planned: compact filters (BIP 157/158) |
-| `script` | planned | opcodes, script types, addresses, taproot |
+| `script` | **partial** | full Opcode enumeration (112 named opcodes with categories, disabled flags, BIPs), ScriptType templates as data with address-encoding rules (base58check, bech32, bech32m), SighashType. Planned: tapscript trees, descriptors, script execution |
 | `p2p` | planned | message envelope and the wire messages |
 | `mine` | planned | block template, coinbase construction, targets |
 | `wallet` | planned | BIP 32 keys, descriptors, PSBT, BIP 21 |

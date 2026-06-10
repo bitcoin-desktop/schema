@@ -68,7 +68,7 @@
   </footer>
 </div>
 <script type="module">
-  const MODULES = ['core', 'proof', 'chain', 'validate'];
+  const MODULES = ['core', 'script', 'proof', 'chain', 'validate'];
   const short = (id) => id.replace(/^btc:/, '');
   const main = document.getElementById('classes');
   main.innerHTML = '';
@@ -108,6 +108,17 @@
           <table><tr><th>field</th><th>${type === 'ConsensusStruct' ? 'wire type' : 'type'}</th><th>description</th></tr>${rows(node.fields, true)}</table>
           ${node.derived ? `<div class="derived-label">derived (computed, never serialized)</div>
           <table><tr><th>field</th><th></th><th>derivation</th></tr>${rows(node.derived, false)}</table>` : ''}`;
+      } else if (type === 'Enumeration') {
+        card.innerHTML = `
+          <h2>${node.label}</h2>
+          <div class="meta">enumeration · ${node.members.length} members</div>
+          <p class="comment">${node.comment}</p>
+          <table><tr>${node.members[0].code !== undefined ? '<th>code</th>' : ''}<th>member</th><th>description</th></tr>
+          ${node.members.map((m) => `
+            <tr>${m.code !== undefined ? `<td class="type">0x${m.code.toString(16).padStart(2, '0')}</td>` : ''}
+                <td class="name">${m.name}${m.disabled ? ' <b style="color:var(--bad,#cf222e)">disabled</b>' : ''}</td>
+                <td class="desc">${m.template ? `<code>${m.template.replace(/</g, '&lt;')}</code><br>` : ''}${m.comment}${m.bip ? ` (BIP ${[].concat(m.bip).join(', ')})` : ''}</td></tr>`).join('')}
+          </table>`;
       } else if (type === 'RuleSet') {
         card.innerHTML = `
           <h2>${node.label}</h2>

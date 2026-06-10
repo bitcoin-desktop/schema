@@ -5,7 +5,7 @@
       "@id": "btc:chain",
       "@type": "Module",
       "label": "chain",
-      "version": "0.0.2",
+      "version": "0.0.4",
       "comment": "Chain-contextual structures: state that depends on which chain you are following and where its tip is. Nothing in this module is covered by proof-of-work; it parameterizes and indexes the consensus structures defined in core.",
       "layer": "context"
     },
@@ -26,7 +26,10 @@
         { "property": "btc:difficultyAdjustmentInterval", "label": "difficultyAdjustmentInterval", "valueType": "u32", "comment": "Blocks per difficulty epoch: targetTimespan / targetSpacing = 2016." },
         { "property": "btc:maxFutureBlockTime", "label": "maxFutureBlockTime", "valueType": "u32", "comment": "Maximum seconds a block timestamp may be ahead of network-adjusted time: 7200 (2 hours)." },
         { "property": "btc:halvingInterval", "label": "halvingInterval", "valueType": "u32", "comment": "Blocks between block-subsidy halvings: 210,000." },
-        { "property": "btc:port", "label": "port", "valueType": "u16", "comment": "Default P2P TCP port." }
+        { "property": "btc:port", "label": "port", "valueType": "u16", "comment": "Default P2P TCP port." },
+        { "property": "btc:p2pkhVersion", "label": "p2pkhVersion", "valueType": "u8", "comment": "Base58Check version byte for pay-to-public-key-hash addresses." },
+        { "property": "btc:p2shVersion", "label": "p2shVersion", "valueType": "u8", "comment": "Base58Check version byte for pay-to-script-hash addresses." },
+        { "property": "btc:bech32Hrp", "label": "bech32Hrp", "valueType": "string", "comment": "Human-readable part of bech32/bech32m segwit addresses (BIP 173/350)." }
       ]
     },
 
@@ -44,7 +47,10 @@
       "difficultyAdjustmentInterval": 2016,
       "maxFutureBlockTime": 7200,
       "halvingInterval": 210000,
-      "port": 8333
+      "port": 8333,
+      "p2pkhVersion": 0,
+      "p2shVersion": 5,
+      "bech32Hrp": "bc"
     }
   ]
 }

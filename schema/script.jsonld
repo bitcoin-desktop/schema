@@ -1,0 +1,849 @@
+{
+  "@context": "../context.jsonld",
+  "@graph": [
+    {
+      "@id": "btc:script",
+      "@type": "Module",
+      "label": "script",
+      "version": "0.0.4",
+      "comment": "The Bitcoin script language surface: the opcode set, the standard output script templates with their address encodings, and signature hash types. Templates are declarative \u2014 the classifier matches them as data.",
+      "layer": "consensus"
+    },
+    {
+      "@id": "btc:Opcode",
+      "@type": "Enumeration",
+      "module": "btc:script",
+      "label": "Opcode",
+      "comment": "Every assigned script opcode. Bytes 0x01-0x4b are OP_PUSHBYTES_1..75 (push that many following bytes) and are modeled as a range rather than 75 members. Disabled opcodes make a transaction invalid if present in an executed script. Unassigned bytes above OP_CHECKSIGADD are invalid in legacy/segwit script and OP_SUCCESSx in tapscript (BIP 342).",
+      "members": [
+        {
+          "name": "OP_0",
+          "code": 0,
+          "category": "constants",
+          "comment": "Push an empty byte vector (numeric zero). Alias OP_FALSE."
+        },
+        {
+          "name": "OP_PUSHDATA1",
+          "code": 76,
+          "category": "constants",
+          "comment": "The next byte gives the number of bytes to push."
+        },
+        {
+          "name": "OP_PUSHDATA2",
+          "code": 77,
+          "category": "constants",
+          "comment": "The next two bytes (LE) give the number of bytes to push."
+        },
+        {
+          "name": "OP_PUSHDATA4",
+          "code": 78,
+          "category": "constants",
+          "comment": "The next four bytes (LE) give the number of bytes to push."
+        },
+        {
+          "name": "OP_1NEGATE",
+          "code": 79,
+          "category": "constants",
+          "comment": "Push the number -1."
+        },
+        {
+          "name": "OP_RESERVED",
+          "code": 80,
+          "category": "reserved",
+          "comment": "Reserved; transaction is invalid unless occurring in an unexecuted branch."
+        },
+        {
+          "name": "OP_1",
+          "code": 81,
+          "category": "constants",
+          "comment": "Push the number 1. Also the segwit/taproot witness version prefix."
+        },
+        {
+          "name": "OP_2",
+          "code": 82,
+          "category": "constants",
+          "comment": "Push the number 2."
+        },
+        {
+          "name": "OP_3",
+          "code": 83,
+          "category": "constants",
+          "comment": "Push the number 3."
+        },
+        {
+          "name": "OP_4",
+          "code": 84,
+          "category": "constants",
+          "comment": "Push the number 4."
+        },
+        {
+          "name": "OP_5",
+          "code": 85,
+          "category": "constants",
+          "comment": "Push the number 5."
+        },
+        {
+          "name": "OP_6",
+          "code": 86,
+          "category": "constants",
+          "comment": "Push the number 6."
+        },
+        {
+          "name": "OP_7",
+          "code": 87,
+          "category": "constants",
+          "comment": "Push the number 7."
+        },
+        {
+          "name": "OP_8",
+          "code": 88,
+          "category": "constants",
+          "comment": "Push the number 8."
+        },
+        {
+          "name": "OP_9",
+          "code": 89,
+          "category": "constants",
+          "comment": "Push the number 9."
+        },
+        {
+          "name": "OP_10",
+          "code": 90,
+          "category": "constants",
+          "comment": "Push the number 10."
+        },
+        {
+          "name": "OP_11",
+          "code": 91,
+          "category": "constants",
+          "comment": "Push the number 11."
+        },
+        {
+          "name": "OP_12",
+          "code": 92,
+          "category": "constants",
+          "comment": "Push the number 12."
+        },
+        {
+          "name": "OP_13",
+          "code": 93,
+          "category": "constants",
+          "comment": "Push the number 13."
+        },
+        {
+          "name": "OP_14",
+          "code": 94,
+          "category": "constants",
+          "comment": "Push the number 14."
+        },
+        {
+          "name": "OP_15",
+          "code": 95,
+          "category": "constants",
+          "comment": "Push the number 15."
+        },
+        {
+          "name": "OP_16",
+          "code": 96,
+          "category": "constants",
+          "comment": "Push the number 16."
+        },
+        {
+          "name": "OP_NOP",
+          "code": 97,
+          "category": "flow",
+          "comment": "Does nothing."
+        },
+        {
+          "name": "OP_VER",
+          "code": 98,
+          "category": "reserved",
+          "comment": "Reserved; invalid unless in an unexecuted branch."
+        },
+        {
+          "name": "OP_IF",
+          "code": 99,
+          "category": "flow",
+          "comment": "Execute the following statements if the top stack value is true (popped)."
+        },
+        {
+          "name": "OP_NOTIF",
+          "code": 100,
+          "category": "flow",
+          "comment": "Execute the following statements if the top stack value is false (popped)."
+        },
+        {
+          "name": "OP_VERIF",
+          "code": 101,
+          "category": "reserved",
+          "comment": "Reserved; transaction is invalid even in an unexecuted branch."
+        },
+        {
+          "name": "OP_VERNOTIF",
+          "code": 102,
+          "category": "reserved",
+          "comment": "Reserved; transaction is invalid even in an unexecuted branch."
+        },
+        {
+          "name": "OP_ELSE",
+          "code": 103,
+          "category": "flow",
+          "comment": "Execute if the preceding OP_IF/OP_NOTIF branch was not executed."
+        },
+        {
+          "name": "OP_ENDIF",
+          "code": 104,
+          "category": "flow",
+          "comment": "Ends an OP_IF/OP_NOTIF/OP_ELSE block."
+        },
+        {
+          "name": "OP_VERIFY",
+          "code": 105,
+          "category": "flow",
+          "comment": "Fail the script if the top stack value is not true; pops it."
+        },
+        {
+          "name": "OP_RETURN",
+          "code": 106,
+          "category": "flow",
+          "comment": "Fail the script immediately. Standard for provably-unspendable data-carrier outputs."
+        },
+        {
+          "name": "OP_TOALTSTACK",
+          "code": 107,
+          "category": "stack",
+          "comment": "Move the top item to the alt stack."
+        },
+        {
+          "name": "OP_FROMALTSTACK",
+          "code": 108,
+          "category": "stack",
+          "comment": "Move the top alt-stack item to the main stack."
+        },
+        {
+          "name": "OP_2DROP",
+          "code": 109,
+          "category": "stack",
+          "comment": "Drop the top two items."
+        },
+        {
+          "name": "OP_2DUP",
+          "code": 110,
+          "category": "stack",
+          "comment": "Duplicate the top two items."
+        },
+        {
+          "name": "OP_3DUP",
+          "code": 111,
+          "category": "stack",
+          "comment": "Duplicate the top three items."
+        },
+        {
+          "name": "OP_2OVER",
+          "code": 112,
+          "category": "stack",
+          "comment": "Copy the third and fourth items to the top."
+        },
+        {
+          "name": "OP_2ROT",
+          "code": 113,
+          "category": "stack",
+          "comment": "Move the fifth and sixth items to the top."
+        },
+        {
+          "name": "OP_2SWAP",
+          "code": 114,
+          "category": "stack",
+          "comment": "Swap the top two pairs of items."
+        },
+        {
+          "name": "OP_IFDUP",
+          "code": 115,
+          "category": "stack",
+          "comment": "Duplicate the top item if it is not zero."
+        },
+        {
+          "name": "OP_DEPTH",
+          "code": 116,
+          "category": "stack",
+          "comment": "Push the stack depth."
+        },
+        {
+          "name": "OP_DROP",
+          "code": 117,
+          "category": "stack",
+          "comment": "Drop the top item."
+        },
+        {
+          "name": "OP_DUP",
+          "code": 118,
+          "category": "stack",
+          "comment": "Duplicate the top item."
+        },
+        {
+          "name": "OP_NIP",
+          "code": 119,
+          "category": "stack",
+          "comment": "Remove the second item."
+        },
+        {
+          "name": "OP_OVER",
+          "code": 120,
+          "category": "stack",
+          "comment": "Copy the second item to the top."
+        },
+        {
+          "name": "OP_PICK",
+          "code": 121,
+          "category": "stack",
+          "comment": "Copy the item n back to the top (n popped)."
+        },
+        {
+          "name": "OP_ROLL",
+          "code": 122,
+          "category": "stack",
+          "comment": "Move the item n back to the top (n popped)."
+        },
+        {
+          "name": "OP_ROT",
+          "code": 123,
+          "category": "stack",
+          "comment": "Rotate the top three items."
+        },
+        {
+          "name": "OP_SWAP",
+          "code": 124,
+          "category": "stack",
+          "comment": "Swap the top two items."
+        },
+        {
+          "name": "OP_TUCK",
+          "code": 125,
+          "category": "stack",
+          "comment": "Copy the top item below the second."
+        },
+        {
+          "name": "OP_CAT",
+          "code": 126,
+          "category": "splice",
+          "comment": "Concatenate two byte vectors.",
+          "disabled": true
+        },
+        {
+          "name": "OP_SUBSTR",
+          "code": 127,
+          "category": "splice",
+          "comment": "Return a section of a byte vector.",
+          "disabled": true
+        },
+        {
+          "name": "OP_LEFT",
+          "code": 128,
+          "category": "splice",
+          "comment": "Keep only bytes left of a position.",
+          "disabled": true
+        },
+        {
+          "name": "OP_RIGHT",
+          "code": 129,
+          "category": "splice",
+          "comment": "Keep only bytes right of a position.",
+          "disabled": true
+        },
+        {
+          "name": "OP_SIZE",
+          "code": 130,
+          "category": "splice",
+          "comment": "Push the length of the top byte vector (without popping it)."
+        },
+        {
+          "name": "OP_INVERT",
+          "code": 131,
+          "category": "bitlogic",
+          "comment": "Bitwise NOT.",
+          "disabled": true
+        },
+        {
+          "name": "OP_AND",
+          "code": 132,
+          "category": "bitlogic",
+          "comment": "Bitwise AND.",
+          "disabled": true
+        },
+        {
+          "name": "OP_OR",
+          "code": 133,
+          "category": "bitlogic",
+          "comment": "Bitwise OR.",
+          "disabled": true
+        },
+        {
+          "name": "OP_XOR",
+          "code": 134,
+          "category": "bitlogic",
+          "comment": "Bitwise XOR.",
+          "disabled": true
+        },
+        {
+          "name": "OP_EQUAL",
+          "code": 135,
+          "category": "bitlogic",
+          "comment": "Push true if the top two items are exactly equal."
+        },
+        {
+          "name": "OP_EQUALVERIFY",
+          "code": 136,
+          "category": "bitlogic",
+          "comment": "OP_EQUAL then OP_VERIFY."
+        },
+        {
+          "name": "OP_RESERVED1",
+          "code": 137,
+          "category": "reserved",
+          "comment": "Reserved; invalid unless in an unexecuted branch."
+        },
+        {
+          "name": "OP_RESERVED2",
+          "code": 138,
+          "category": "reserved",
+          "comment": "Reserved; invalid unless in an unexecuted branch."
+        },
+        {
+          "name": "OP_1ADD",
+          "code": 139,
+          "category": "arithmetic",
+          "comment": "Add 1."
+        },
+        {
+          "name": "OP_1SUB",
+          "code": 140,
+          "category": "arithmetic",
+          "comment": "Subtract 1."
+        },
+        {
+          "name": "OP_2MUL",
+          "code": 141,
+          "category": "arithmetic",
+          "comment": "Multiply by 2.",
+          "disabled": true
+        },
+        {
+          "name": "OP_2DIV",
+          "code": 142,
+          "category": "arithmetic",
+          "comment": "Divide by 2.",
+          "disabled": true
+        },
+        {
+          "name": "OP_NEGATE",
+          "code": 143,
+          "category": "arithmetic",
+          "comment": "Negate."
+        },
+        {
+          "name": "OP_ABS",
+          "code": 144,
+          "category": "arithmetic",
+          "comment": "Absolute value."
+        },
+        {
+          "name": "OP_NOT",
+          "code": 145,
+          "category": "arithmetic",
+          "comment": "Push true if input is zero, else false."
+        },
+        {
+          "name": "OP_0NOTEQUAL",
+          "code": 146,
+          "category": "arithmetic",
+          "comment": "Push false if input is zero, else true."
+        },
+        {
+          "name": "OP_ADD",
+          "code": 147,
+          "category": "arithmetic",
+          "comment": "Add the top two numbers."
+        },
+        {
+          "name": "OP_SUB",
+          "code": 148,
+          "category": "arithmetic",
+          "comment": "Subtract the top number from the second."
+        },
+        {
+          "name": "OP_MUL",
+          "code": 149,
+          "category": "arithmetic",
+          "comment": "Multiply.",
+          "disabled": true
+        },
+        {
+          "name": "OP_DIV",
+          "code": 150,
+          "category": "arithmetic",
+          "comment": "Divide.",
+          "disabled": true
+        },
+        {
+          "name": "OP_MOD",
+          "code": 151,
+          "category": "arithmetic",
+          "comment": "Remainder.",
+          "disabled": true
+        },
+        {
+          "name": "OP_LSHIFT",
+          "code": 152,
+          "category": "arithmetic",
+          "comment": "Left shift.",
+          "disabled": true
+        },
+        {
+          "name": "OP_RSHIFT",
+          "code": 153,
+          "category": "arithmetic",
+          "comment": "Right shift.",
+          "disabled": true
+        },
+        {
+          "name": "OP_BOOLAND",
+          "code": 154,
+          "category": "arithmetic",
+          "comment": "Boolean AND of the top two numbers."
+        },
+        {
+          "name": "OP_BOOLOR",
+          "code": 155,
+          "category": "arithmetic",
+          "comment": "Boolean OR of the top two numbers."
+        },
+        {
+          "name": "OP_NUMEQUAL",
+          "code": 156,
+          "category": "arithmetic",
+          "comment": "Push true if the top two numbers are equal."
+        },
+        {
+          "name": "OP_NUMEQUALVERIFY",
+          "code": 157,
+          "category": "arithmetic",
+          "comment": "OP_NUMEQUAL then OP_VERIFY."
+        },
+        {
+          "name": "OP_NUMNOTEQUAL",
+          "code": 158,
+          "category": "arithmetic",
+          "comment": "Push true if the top two numbers differ."
+        },
+        {
+          "name": "OP_LESSTHAN",
+          "code": 159,
+          "category": "arithmetic",
+          "comment": "a < b."
+        },
+        {
+          "name": "OP_GREATERTHAN",
+          "code": 160,
+          "category": "arithmetic",
+          "comment": "a > b."
+        },
+        {
+          "name": "OP_LESSTHANOREQUAL",
+          "code": 161,
+          "category": "arithmetic",
+          "comment": "a <= b."
+        },
+        {
+          "name": "OP_GREATERTHANOREQUAL",
+          "code": 162,
+          "category": "arithmetic",
+          "comment": "a >= b."
+        },
+        {
+          "name": "OP_MIN",
+          "code": 163,
+          "category": "arithmetic",
+          "comment": "Lesser of two numbers."
+        },
+        {
+          "name": "OP_MAX",
+          "code": 164,
+          "category": "arithmetic",
+          "comment": "Greater of two numbers."
+        },
+        {
+          "name": "OP_WITHIN",
+          "code": 165,
+          "category": "arithmetic",
+          "comment": "True if x is within [min, max)."
+        },
+        {
+          "name": "OP_RIPEMD160",
+          "code": 166,
+          "category": "crypto",
+          "comment": "RIPEMD-160 hash of the top item."
+        },
+        {
+          "name": "OP_SHA1",
+          "code": 167,
+          "category": "crypto",
+          "comment": "SHA-1 hash of the top item."
+        },
+        {
+          "name": "OP_SHA256",
+          "code": 168,
+          "category": "crypto",
+          "comment": "SHA-256 hash of the top item."
+        },
+        {
+          "name": "OP_HASH160",
+          "code": 169,
+          "category": "crypto",
+          "comment": "SHA-256 then RIPEMD-160 \u2014 the public-key and script hash used in addresses."
+        },
+        {
+          "name": "OP_HASH256",
+          "code": 170,
+          "category": "crypto",
+          "comment": "Double SHA-256 \u2014 the block and transaction hash function."
+        },
+        {
+          "name": "OP_CODESEPARATOR",
+          "code": 171,
+          "category": "crypto",
+          "comment": "Marks the start of signed script data."
+        },
+        {
+          "name": "OP_CHECKSIG",
+          "code": 172,
+          "category": "crypto",
+          "comment": "Verify a signature against a public key and the transaction sighash."
+        },
+        {
+          "name": "OP_CHECKSIGVERIFY",
+          "code": 173,
+          "category": "crypto",
+          "comment": "OP_CHECKSIG then OP_VERIFY."
+        },
+        {
+          "name": "OP_CHECKMULTISIG",
+          "code": 174,
+          "category": "crypto",
+          "comment": "Verify m signatures against n public keys. Pops one extra item (historical off-by-one)."
+        },
+        {
+          "name": "OP_CHECKMULTISIGVERIFY",
+          "code": 175,
+          "category": "crypto",
+          "comment": "OP_CHECKMULTISIG then OP_VERIFY."
+        },
+        {
+          "name": "OP_NOP1",
+          "code": 176,
+          "category": "flow",
+          "comment": "Does nothing; reserved for upgrades."
+        },
+        {
+          "name": "OP_CHECKLOCKTIMEVERIFY",
+          "code": 177,
+          "category": "locktime",
+          "comment": "Fail if the transaction lockTime is below the top stack number. Formerly OP_NOP2.",
+          "bip": 65
+        },
+        {
+          "name": "OP_CHECKSEQUENCEVERIFY",
+          "code": 178,
+          "category": "locktime",
+          "comment": "Fail if the input sequence relative lock-time is below the top stack number. Formerly OP_NOP3.",
+          "bip": 112
+        },
+        {
+          "name": "OP_NOP4",
+          "code": 179,
+          "category": "flow",
+          "comment": "Does nothing; reserved for upgrades."
+        },
+        {
+          "name": "OP_NOP5",
+          "code": 180,
+          "category": "flow",
+          "comment": "Does nothing; reserved for upgrades."
+        },
+        {
+          "name": "OP_NOP6",
+          "code": 181,
+          "category": "flow",
+          "comment": "Does nothing; reserved for upgrades."
+        },
+        {
+          "name": "OP_NOP7",
+          "code": 182,
+          "category": "flow",
+          "comment": "Does nothing; reserved for upgrades."
+        },
+        {
+          "name": "OP_NOP8",
+          "code": 183,
+          "category": "flow",
+          "comment": "Does nothing; reserved for upgrades."
+        },
+        {
+          "name": "OP_NOP9",
+          "code": 184,
+          "category": "flow",
+          "comment": "Does nothing; reserved for upgrades."
+        },
+        {
+          "name": "OP_NOP10",
+          "code": 185,
+          "category": "flow",
+          "comment": "Does nothing; reserved for upgrades."
+        },
+        {
+          "name": "OP_CHECKSIGADD",
+          "code": 186,
+          "category": "crypto",
+          "comment": "Tapscript batch-friendly multisig: add a signature check result to a counter.",
+          "bip": 342
+        }
+      ]
+    },
+    {
+      "@id": "btc:ScriptType",
+      "@type": "Enumeration",
+      "module": "btc:script",
+      "label": "ScriptType",
+      "comment": "Standard output script templates. <n> in a template matches a data push of exactly n bytes; <a|b> matches either length. The addressEncoding rule derives the address from the matched data pushes (payload 'push:n' is the n-th data push) and the network's parameters (base58 version bytes, bech32 HRP).",
+      "members": [
+        {
+          "name": "p2pk",
+          "comment": "Pay to public key: the original output form, used by early coinbases including the genesis block. No address form exists.",
+          "template": "<33|65> OP_CHECKSIG"
+        },
+        {
+          "name": "p2pkh",
+          "comment": "Pay to public key hash: the classic base58 '1\u2026' address.",
+          "template": "OP_DUP OP_HASH160 <20> OP_EQUALVERIFY OP_CHECKSIG",
+          "addressEncoding": {
+            "encoding": "base58check",
+            "versionParam": "p2pkhVersion",
+            "payload": "push:0"
+          }
+        },
+        {
+          "name": "p2sh",
+          "comment": "Pay to script hash (BIP 16): the spender reveals a redeem script matching the hash. Base58 '3\u2026' address.",
+          "template": "OP_HASH160 <20> OP_EQUAL",
+          "bip": 16,
+          "addressEncoding": {
+            "encoding": "base58check",
+            "versionParam": "p2shVersion",
+            "payload": "push:0"
+          }
+        },
+        {
+          "name": "p2wpkh",
+          "comment": "Native segwit v0 pay to witness public key hash (BIP 141). Bech32 'bc1q\u2026' address.",
+          "template": "OP_0 <20>",
+          "bip": [
+            141,
+            173
+          ],
+          "addressEncoding": {
+            "encoding": "bech32",
+            "witnessVersion": 0,
+            "payload": "push:0"
+          }
+        },
+        {
+          "name": "p2wsh",
+          "comment": "Native segwit v0 pay to witness script hash (BIP 141). Bech32 'bc1q\u2026' address (longer).",
+          "template": "OP_0 <32>",
+          "bip": [
+            141,
+            173
+          ],
+          "addressEncoding": {
+            "encoding": "bech32",
+            "witnessVersion": 0,
+            "payload": "push:0"
+          }
+        },
+        {
+          "name": "p2tr",
+          "comment": "Taproot (BIP 341): pay to a tweaked x-only public key. Bech32m 'bc1p\u2026' address.",
+          "template": "OP_1 <32>",
+          "bip": [
+            341,
+            350
+          ],
+          "addressEncoding": {
+            "encoding": "bech32m",
+            "witnessVersion": 1,
+            "payload": "push:0"
+          }
+        },
+        {
+          "name": "multisig",
+          "comment": "Bare m-of-n multisig: OP_m <pubkey>\u2026 OP_n OP_CHECKMULTISIG. No address form.",
+          "special": "multisig"
+        },
+        {
+          "name": "nulldata",
+          "comment": "OP_RETURN data carrier: provably unspendable, excluded from the UTXO set.",
+          "special": "nulldata"
+        },
+        {
+          "name": "witness-unknown",
+          "comment": "A witness program with a version not yet assigned semantics (OP_2..OP_16 followed by a 2-40 byte push). Valid to send to; anyone-can-spend until a soft fork defines it.",
+          "special": "witness-unknown",
+          "bip": 141,
+          "addressEncoding": {
+            "encoding": "bech32m",
+            "payload": "push:0"
+          }
+        },
+        {
+          "name": "nonstandard",
+          "comment": "Any script matching no standard template. Consensus-valid but not relayed by default policy.",
+          "special": "fallback"
+        }
+      ]
+    },
+    {
+      "@id": "btc:SighashType",
+      "@type": "Enumeration",
+      "module": "btc:script",
+      "label": "SighashType",
+      "comment": "Signature hash modes controlling which parts of a transaction a signature commits to. ANYONECANPAY is a flag combinable with the base modes.",
+      "members": [
+        {
+          "name": "SIGHASH_DEFAULT",
+          "code": 0,
+          "comment": "Taproot only (BIP 341): equivalent to SIGHASH_ALL but allows the shorter 64-byte signature.",
+          "bip": 341
+        },
+        {
+          "name": "SIGHASH_ALL",
+          "code": 1,
+          "comment": "Commit to all inputs and all outputs \u2014 the default and overwhelmingly most common mode."
+        },
+        {
+          "name": "SIGHASH_NONE",
+          "code": 2,
+          "comment": "Commit to all inputs and no outputs."
+        },
+        {
+          "name": "SIGHASH_SINGLE",
+          "code": 3,
+          "comment": "Commit to all inputs and only the output with the same index as the signed input."
+        },
+        {
+          "name": "SIGHASH_ANYONECANPAY",
+          "code": 128,
+          "comment": "Flag: commit only to the signed input, allowing others to add inputs."
+        }
+      ]
+    }
+  ]
+}
