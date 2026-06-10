@@ -1,0 +1,80 @@
+{
+  "@context": "../context.jsonld",
+  "@graph": [
+    {
+      "@id": "btc:mine",
+      "@type": "Module",
+      "label": "mine",
+      "version": "0.0.9",
+      "comment": "Block construction: assembling a candidate block from a template and searching for proof-of-work. Mining is validation run forward \u2014 a miner constructs consensus fields such that every derived field satisfies every rule.",
+      "layer": "context"
+    },
+    {
+      "@id": "btc:BlockTemplate",
+      "@type": "ContextStruct",
+      "module": "btc:mine",
+      "label": "BlockTemplate",
+      "comment": "Everything needed to assemble a candidate block, mirroring Bitcoin Core's getblocktemplate (BIP 22/23): chain context, consensus constraints, and the transaction set with fees.",
+      "bip": [
+        22,
+        23
+      ],
+      "fields": [
+        {
+          "property": "btc:previousBlockHash",
+          "label": "previousBlockHash",
+          "valueType": "hash",
+          "comment": "Tip the candidate extends."
+        },
+        {
+          "property": "btc:height",
+          "label": "height",
+          "valueType": "u32",
+          "comment": "Height of the candidate (tip + 1); pushed into the coinbase scriptSig per BIP 34."
+        },
+        {
+          "property": "btc:version",
+          "label": "version",
+          "valueType": "i32",
+          "comment": "Block version to use; must satisfy the version rule at this height."
+        },
+        {
+          "property": "btc:bits",
+          "label": "bits",
+          "valueType": "u32",
+          "comment": "Required compact target \u2014 the difficulty rule decides it, the miner cannot."
+        },
+        {
+          "property": "btc:curTime",
+          "label": "curTime",
+          "valueType": "u32",
+          "comment": "Suggested timestamp; must exceed median-time-past and not be too far in the future."
+        },
+        {
+          "property": "btc:transactions",
+          "label": "transactions",
+          "valueType": "list",
+          "comment": "Candidate transactions with their fees and weights; first position is reserved for the coinbase the miner constructs."
+        },
+        {
+          "property": "btc:coinbaseValue",
+          "label": "coinbaseValue",
+          "valueType": "i64",
+          "comment": "Maximum claimable: subsidy(height) plus the included transactions' fees."
+        },
+        {
+          "property": "btc:witnessCommitment",
+          "label": "witnessCommitment",
+          "valueType": "hex",
+          "comment": "Required coinbase commitment when any included transaction carries witness data (BIP 141)."
+        },
+        {
+          "property": "btc:extraNonce",
+          "label": "extraNonce",
+          "valueType": "hex",
+          "comment": "Extra entropy in the coinbase scriptSig, extending the 32-bit header nonce search space (changing it changes the merkle root)."
+        }
+      ]
+    }
+  ]
+}
