@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPV proof verifier — Bitcoin Schema</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de;
+    --fg: #1f2328; --muted: #57606a; --accent: #e8830c; --link: #0969da;
+    --ok: #1a7f37; --bad: #cf222e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .2rem; } h1 span { color: var(--accent); }
+  p.tag { color: var(--muted); margin: 0 0 1.2rem; }
+  a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
+  .row { display: flex; gap: .8rem; }
+  input { flex: 1; background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+          border-radius: 8px; padding: .55rem .7rem; font: 13px var(--mono); }
+  button { background: var(--accent); color: #fff; font-weight: 600; border: none;
+           border-radius: 8px; padding: .55rem 1.4rem; cursor: pointer; font-size: 1rem; }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: wait; }
+  #status { margin-top: 1rem; font: 14px var(--mono); color: var(--muted); }
+  .summary { margin-top: 1.2rem; padding: .9rem 1.2rem; border-radius: 10px; font-weight: 600; }
+  .summary.ok { background: #dafbe1; color: var(--ok); border: 1px solid #aceebb; }
+  .summary.bad { background: #ffebe9; color: var(--bad); border: 1px solid #ffcecb; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+           padding: 1rem 1.2rem; margin-top: 1.2rem; }
+  .panel h2 { font-size: 1rem; margin: 0 0 .6rem; color: var(--muted); }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: .3rem 1.2rem; margin: 0;
+       font: 13px var(--mono); }
+  dt { color: var(--accent); } dd { margin: 0; overflow-wrap: anywhere; }
+  table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+  th, td { text-align: left; padding: .35rem .6rem; border-top: 1px solid var(--border); }
+  th { color: var(--muted); border-top: none; }
+  td.mono { font-family: var(--mono); }
+  .y { color: var(--ok); } .n { color: var(--bad); font-weight: 700; } .s { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>SPV proof <span>verifier</span></h1>
+  <p class="tag">Simplified Payment Verification, whitepaper section 8: prove a transaction is in the
+     chain using only an 80-byte header and a merkle path. The raw BIP 37 merkleblock is decoded by the
+     <a href="../codec/codec.js">schema codec</a> and checked against the
+     <a href="../schema/validate.jsonld">spv ruleset</a> — entirely in your browser.
+     · <a href="../index.html">schema</a> · <a href="headers.html">header verifier</a> · <a href="tx.html">tx decoder</a></p>
+
+  <div class="row">
+    <input id="txid" spellcheck="false" placeholder="transaction id">
+    <button id="go">Verify inclusion</button>
+  </div>
+  <div id="status"></div>
+  <div id="out"></div>
+</div>
+<script type="module">
+  import { Codec } from '../codec/codec.js';
+  import { SpvEngine } from '../codec/spv.js';
+
+  const API = 'https://blockstream.info/api';
+  const $ = (id) => document.getElementById(id);
+  const load = async (p) => (await fetch(p)).json();
+
+  const codec = new Codec(await load('../schema/core.jsonld'), await load('../schema/proof.jsonld'));
+  const engine = SpvEngine.fromSchemas(codec, await load('../schema/validate.jsonld'));
+
+  const text = async (p) => {
+    const r = await fetch(API + p);
+    if (!r.ok) throw new Error(`${p}: HTTP ${r.status}`);
+    return r.text();
+  };
+
+  // prefill with the first segwit transaction ever mined
+  $('txid').value = '8f907925d2ebe48765103e6845c06f1f2bb77c6adc1cc002865865eb5cfd5c1c';
+
+  async function run() {
+    $('go').disabled = true;
+    $('out').innerHTML = '';
+    $('status').textContent = 'fetching proof…';
+    try {
+      const txid = $('txid').value.trim().toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(txid)) throw new Error('not a txid (64 hex chars)');
+
+      const [proofHex, status, tipHeight] = await Promise.all([
+        text(`/tx/${txid}/merkleblock-proof`),
+        text(`/tx/${txid}/status`).then(JSON.parse),
+        text('/blocks/tip/height').then(Number),
+      ]);
+
+      const mb = codec.decode('MerkleBlock', proofHex);
+      const verdict = engine.verify(mb, { txid });
+      const match = verdict.matches.find((m) => m.txid === txid);
+      const confirmations = status.block_height != null ? tipHeight - status.block_height + 1 : 0;
+
+      const mark = (r) => r.ok === true ? '<span class="y">✓ pass</span>'
+        : r.ok === false ? `<span class="n">✗ ${r.error}</span>`
+        : '<span class="s">– skipped</span>';
+
+      $('out').innerHTML = `
+        <div class="summary ${verdict.ok ? 'ok' : 'bad'}">
+          ${verdict.ok
+            ? `✓ transaction is committed by block ${status.block_height} at position ${match.index} of ${mb.txCount} — under ${confirmations.toLocaleString()} confirmations of proof-of-work`
+            : `✗ proof did not verify: ${verdict.results.filter((r) => r.ok === false).map((r) => r.error).join(', ')}`}
+        </div>
+        <div class="panel"><h2>spv ruleset (schema/validate.jsonld)</h2>
+          <table><tr><th>#</th><th>rule</th><th>result</th></tr>
+          ${verdict.results.map((r, i) => `<tr><td class="mono">${i + 1}</td><td class="mono">${r.label}</td><td>${mark(r)}</td></tr>`).join('')}
+          </table></div>
+        <div class="panel"><h2>proof</h2><dl>
+          <dt>block height</dt><dd>${status.block_height ?? 'unconfirmed'}</dd>
+          <dt>block hash</dt><dd>${codec.blockHash(mb.header)}</dd>
+          <dt>block time</dt><dd>${new Date(mb.header.time * 1000).toISOString()}</dd>
+          <dt>txs in block</dt><dd>${mb.txCount.toLocaleString()}</dd>
+          <dt>merkle path</dt><dd>${mb.hashes.length} hashes · ${mb.flags.length / 2} flag bytes · ${proofHex.length / 2} bytes total</dd>
+          <dt>reconstructed root</dt><dd>${verdict.root}</dd>
+          <dt>header merkleRoot</dt><dd>${mb.header.merkleRoot}</dd>
+          <dt>position in block</dt><dd>${match ? match.index : '—'}</dd>
+        </dl></div>
+        <p style="color:var(--muted);font-size:.85rem">The proof carries no transaction data:
+           ${proofHex.length / 2} bytes prove membership in a block of ${mb.txCount.toLocaleString()}
+           transactions. Proof fetched from blockstream.info; verification is local.</p>`;
+      $('status').textContent = '';
+    } catch (e) {
+      $('status').innerHTML = `<span style="color:var(--bad)">✖ ${e.message}</span>`;
+    } finally {
+      $('go').disabled = false;
+    }
+  }
+  $('go').addEventListener('click', run);
+  $('txid').addEventListener('keydown', (e) => { if (e.key === 'Enter') run(); });
+  run();
+</script>
+</body>
+</html>

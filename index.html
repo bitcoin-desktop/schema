@@ -50,6 +50,7 @@
        binary codec, explorer views, RDF, validation.</p>
     <nav>
       <a href="apps/headers.html">⛓ header chain verifier</a>
+      <a href="apps/spv.html">🛡 spv proof verifier</a>
       <a href="apps/tx.html">⚡ transaction decoder</a>
       <a href="context.jsonld">context.jsonld</a>
       <a href="https://github.com/bitcoin-desktop/schema">github</a>
@@ -67,7 +68,7 @@
   </footer>
 </div>
 <script type="module">
-  const MODULES = ['core', 'chain', 'validate'];
+  const MODULES = ['core', 'proof', 'chain', 'validate'];
   const short = (id) => id.replace(/^btc:/, '');
   const main = document.getElementById('classes');
   main.innerHTML = '';
@@ -81,12 +82,13 @@
         : `<code>${f.derivation}</code><br>${f.comment}`}</td>
     </tr>`).join('');
 
+  const pkg = await (await fetch('package.json')).json();
+  document.getElementById('version').textContent = 'v' + pkg.version;
+
   for (const name of MODULES) {
     const schema = await (await fetch(`schema/${name}.jsonld`)).json();
     const nodes = schema['@graph'];
     const module_ = nodes.find((n) => n['@type'] === 'Module');
-    if (name === 'core' && module_?.version)
-      document.getElementById('version').textContent = 'v' + module_.version;
 
     const heading = document.createElement('h2');
     heading.style.cssText = 'margin:2.2rem 0 0;font-size:1.1rem;color:var(--muted);font-family:var(--mono)';

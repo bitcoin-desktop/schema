@@ -5,7 +5,7 @@
       "@id": "btc:validate",
       "@type": "Module",
       "label": "validate",
-      "version": "0.0.2",
+      "version": "0.0.3",
       "comment": "Validation rules as data, in the spirit of Hornet Node's formal consensus specification: ordered rulesets of pure checks, each enforcing a single invariant and naming a typed error. Error codes match Bitcoin Core's reject reasons so results are comparable across implementations.",
       "layer": "rules"
     },
@@ -57,6 +57,49 @@
           "errorCode": "time-too-new",
           "comment": "The header's timestamp must be no more than maxFutureBlockTime (2 hours) ahead of network-adjusted time.",
           "check": "header.time <= now + params.maxFutureBlockTime"
+        }
+      ]
+    },
+
+    {
+      "@id": "btc:SpvRules",
+      "@type": "RuleSet",
+      "module": "btc:validate",
+      "label": "SpvRules",
+      "phase": "spv",
+      "comment": "Verification of a merkle inclusion proof (MerkleBlock). Combined with header chain validation, a proof passing these rules demonstrates a transaction's inclusion under the chain's cumulative proof-of-work without any block data.",
+      "rules": [
+        {
+          "@id": "btc:rule-spv-pow",
+          "@type": "ValidationRule",
+          "label": "proof-of-work",
+          "errorCode": "high-hash",
+          "comment": "The embedded header's hash must satisfy its own target. (Chain membership and cumulative work are established by the header phase.)",
+          "check": "hash(merkleBlock.header) <= expandCompact(merkleBlock.header.bits)"
+        },
+        {
+          "@id": "btc:rule-spv-tree",
+          "@type": "ValidationRule",
+          "label": "tree-consistency",
+          "errorCode": "bad-merkle-tree",
+          "comment": "The partial merkle tree must be well-formed: every hash and every flag bit consumed exactly once (modulo byte padding), no identical left/right branches (CVE-2012-2459), and a non-zero transaction count.",
+          "check": "extractPartialMerkleTree(merkleBlock).wellFormed"
+        },
+        {
+          "@id": "btc:rule-spv-merkle-root",
+          "@type": "ValidationRule",
+          "label": "merkle-root",
+          "errorCode": "bad-txnmrklroot",
+          "comment": "The root reconstructed from the partial tree must equal the header's merkleRoot.",
+          "check": "extractPartialMerkleTree(merkleBlock).root == merkleBlock.header.merkleRoot"
+        },
+        {
+          "@id": "btc:rule-spv-inclusion",
+          "@type": "ValidationRule",
+          "label": "inclusion",
+          "errorCode": "tx-not-included",
+          "comment": "The transaction being verified must appear among the proof's matched txids. Skipped when no target transaction is specified.",
+          "check": "txid in extractPartialMerkleTree(merkleBlock).matches"
         }
       ]
     }
