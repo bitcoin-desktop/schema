@@ -1,0 +1,42 @@
+{
+  "name": "script-classification",
+  "comment": "Real mainnet outputs of each standard script type, with esplora's classification and address as oracle. Fetched 2026-06-10.",
+  "outputs": [
+    {
+      "scriptHex": "00207086320071974eef5e72eaa01dd9096e10c0383483855ea6b344259c244f73c2",
+      "esploraType": "v0_p2wsh",
+      "address": "bc1qwzrryqr3ja8w7hnja2spmkgfdcgvqwp5swz4af4ngsjecfz0w0pqud7k38",
+      "txid": "3f4ff978e70948d24f8497c40567657a3d85ba8dd26241509c6dff0139e08e64"
+    },
+    {
+      "scriptHex": "6a24aa21a9ed930d8343d81a769a952f7a04030b61c81395df792090963dcf8e05a78638151b",
+      "esploraType": "op_return",
+      "address": null,
+      "txid": "3f4ff978e70948d24f8497c40567657a3d85ba8dd26241509c6dff0139e08e64"
+    },
+    {
+      "scriptHex": "00142f6cf463a13b0f8cfe291d18d5f86019df316b9e",
+      "esploraType": "v0_p2wpkh",
+      "address": "bc1q9ak0gcap8v8cel3fr5vdt7rqr80nz6u744vh02",
+      "txid": "23ac34952b0c1ae573331bc88ae6d5f5e5845d47b19a7162d66f7fd7a94857cd"
+    },
+    {
+      "scriptHex": "a914c9530385c71cc001ed6cfa91e2d3cc67d2ac418c87",
+      "esploraType": "p2sh",
+      "address": "3L3XBztL51oCxBdZJQJPyfzw4V6d52hLrz",
+      "txid": "872b8dba50d55bf34536c8d34e76a57587e73d13a6219f5d23c48e5e80c5d31c"
+    },
+    {
+      "scriptHex": "76a9140edd661a45a8c8271605a7731c6941f0df6eb78a88ac",
+      "esploraType": "p2pkh",
+      "address": "12MbgkJZZr4H5p5ikZRDBahajq6m7YBuac",
+      "txid": "35037eedc15e2ca502530fa39a5ece599490a8976384310756eefbfdd60fc81b"
+    },
+    {
+      "scriptHex": "512088a502cb4d2ea4f68aa5557efc4f242dd0341d15d8fe523a189d1c9b09a15c22",
+      "esploraType": "v1_p2tr",
+      "address": "bc1p3zjs9j6d96j0dz4924l0cney9hgrg8g4mrl9ywscn5wfkzdpts3q346q7w",
+      "txid": "f554617b72d4eb7a049244ab4b3633a8b29d1b5f4c1be56f2c4a16b79893c122"
+    }
+  ]
+}

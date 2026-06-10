@@ -31,6 +31,15 @@
                font: 13px var(--mono); }
   dl.derived dt { color: var(--accent); } dl.derived dd { margin: 0; overflow-wrap: anywhere; }
   pre { font: 12.5px var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; color: var(--fg); }
+  .io { border-top: 1px solid var(--border); padding: .6rem 0; font-size: .85rem; }
+  .io:first-of-type { border-top: none; padding-top: 0; }
+  .io .head { font-family: var(--mono); }
+  .io .head .idx { color: var(--muted); }
+  .io .head .amt { color: var(--accent); font-weight: 600; }
+  .badge { display: inline-block; font: 11px var(--mono); border: 1px solid var(--border);
+           border-radius: 999px; padding: 0 .55em; margin-left: .5em; color: var(--muted); background: var(--bg); }
+  .addr { font: 12.5px var(--mono); overflow-wrap: anywhere; }
+  .asm { font: 11.5px var(--mono); color: var(--muted); overflow-wrap: anywhere; margin-top: .15rem; }
 </style>
 </head>
 <body>
@@ -45,9 +54,13 @@
 </div>
 <script type="module">
   import { Codec } from '../codec/codec.js';
-  const core = await (await fetch('../schema/core.jsonld')).json();
-  const codec = new Codec(core);
+  import { ScriptEngine } from '../codec/script.js';
+  const load = async (p) => (await fetch(p)).json();
+  const codec = new Codec(await load('../schema/core.jsonld'));
+  const scripts = ScriptEngine.fromSchemas(await load('../schema/script.jsonld'), await load('../schema/chain.jsonld'));
   const $ = (id) => document.getElementById(id);
+  const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const btc = (sats) => (sats / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '.0') + ' BTC';
 
   // prefill with the first segwit transaction ever mined
   $('hex').value = (await (await fetch('../test/vectors/first-segwit-tx.json')).json()).hex;
@@ -70,12 +83,38 @@
         '@type': 'btc:Transaction',
         ...tx,
       };
+      const coinbase = tx.inputs.length === 1
+        && tx.inputs[0].prevout.txid === '0'.repeat(64) && tx.inputs[0].prevout.vout === 0xffffffff;
+
+      const inputsHtml = tx.inputs.map((inp, i) => `
+        <div class="io">
+          <div class="head"><span class="idx">#${i}</span>
+            ${coinbase ? '<span class="badge">coinbase</span>'
+              : `${inp.prevout.txid.slice(0, 24)}…:${inp.prevout.vout}`}
+            ${tx.witness?.[i]?.length ? `<span class="badge">witness × ${tx.witness[i].length}</span>` : ''}
+          </div>
+          ${inp.scriptSig ? `<div class="asm">scriptSig: ${esc(scripts.asm(inp.scriptSig))}</div>` : ''}
+        </div>`).join('');
+
+      const outputsHtml = tx.outputs.map((o, i) => {
+        const c = scripts.classify(o.scriptPubKey);
+        return `
+        <div class="io">
+          <div class="head"><span class="idx">#${i}</span> <span class="amt">${btc(o.value)}</span>
+            <span class="badge">${c.type}</span></div>
+          ${c.address ? `<div class="addr">${c.address}</div>` : ''}
+          <div class="asm">${esc(c.asm)}</div>
+        </div>`;
+      }).join('');
+
       out.innerHTML = `
         <div class="panel"><h2>derived</h2><dl class="derived">${
           Object.entries(derived).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')
         }</dl></div>
+        <div class="panel"><h2>${tx.inputs.length} input${tx.inputs.length > 1 ? 's' : ''}</h2>${inputsHtml}</div>
+        <div class="panel"><h2>${tx.outputs.length} output${tx.outputs.length > 1 ? 's' : ''}</h2>${outputsHtml}</div>
         <div class="panel"><h2>JSON-LD instance</h2><pre>${
-          JSON.stringify(instance, null, 2).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          esc(JSON.stringify(instance, null, 2))
         }</pre></div>`;
     } catch (e) {
       out.innerHTML = `<div class="error">✖ ${e.message}</div>`;

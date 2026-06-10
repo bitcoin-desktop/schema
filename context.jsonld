@@ -1,6 +1,7 @@
 {
   "@context": {
     "@version": 1.1,
+    "@vocab": "https://bitcoin-desktop.github.io/schema/",
     "btc": "https://bitcoin-desktop.github.io/schema/",
     "btcs": "https://bitcoin-desktop.github.io/schema/meta#",
     "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
@@ -15,6 +16,8 @@
     "Module": "btcs:Module",
     "ConsensusStruct": "btcs:ConsensusStruct",
     "ContextStruct": "btcs:ContextStruct",
+    "Enumeration": "btcs:Enumeration",
+    "members": { "@id": "btcs:members", "@container": "@list" },
     "RuleSet": "btcs:RuleSet",
     "ValidationRule": "btcs:ValidationRule",
     "phase": "btcs:phase",
