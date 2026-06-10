@@ -12,7 +12,7 @@ import { P2pEngine } from '../codec/p2p.js';
 import { HeaderEngine } from '../codec/headers.js';
 import { LightNode, MemoryStorage, BridgeSource } from '../codec/node.js';
 import { acceptKey, encodeFrame, FrameParser } from '../codec/ws.js';
-import { startBridge } from '../bridge/bridge.mjs';
+import { startBridge } from '../bridge/bridge.js';
 
 const root = new URL('..', import.meta.url);
 const load = async (p) => JSON.parse(await readFile(new URL(p, root), 'utf8'));
