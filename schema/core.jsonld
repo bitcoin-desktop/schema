@@ -5,7 +5,7 @@
       "@id": "btc:core",
       "@type": "Module",
       "label": "core",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "comment": "Consensus-critical structures of the Bitcoin protocol. Every field tagged with a wireType exists in the canonical byte serialization and is covered by proof-of-work. Derived fields are computed deterministically from consensus bytes and are never serialized.",
       "layer": "consensus"
     },

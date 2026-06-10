@@ -1,0 +1,138 @@
+// Schema-driven header chain engine.
+//
+// Executes the `header` phase ruleset from schema/validate.jsonld against
+// decoded BlockHeader objects, with network parameters from schema/chain.jsonld.
+// Rule order, identity, and error codes come from the schema; this file holds
+// only the pure check implementations the rule IDs bind to (Hornet-style:
+// one invariant per rule, no side effects, typed errors).
+//
+// A check returns true (pass), false (fail -> the rule's errorCode), or
+// null (insufficient context to evaluate; reported as skipped).
+
+export class HeaderEngine {
+  constructor(codec, params, ruleSet) {
+    this.codec = codec;
+    this.params = params;
+    this.ruleSet = ruleSet;
+    this.powLimit = BigInt('0x' + params.powLimit);
+    this.interval = params.difficultyAdjustmentInterval;
+
+    this.checks = {
+      'btc:rule-header-prev-link': (ctx) =>
+        ctx.prev == null ? null : ctx.header.prevBlockHash === this.codec.blockHash(ctx.prev),
+      'btc:rule-header-pow': (ctx) =>
+        this.codec.checkProofOfWork(ctx.header),
+      'btc:rule-header-difficulty': (ctx) => {
+        if (ctx.prev == null) return null;
+        const expected = this.expectedBits(ctx.prev, ctx.height - 1, ctx.epochFirst);
+        return expected == null ? null : ctx.header.bits === expected;
+      },
+      'btc:rule-header-mtp': (ctx) =>
+        ctx.mtpWindow?.length ? ctx.header.time > this.medianTimePast(ctx.mtpWindow) : null,
+      'btc:rule-header-time-future': (ctx) =>
+        ctx.now == null ? null : ctx.header.time <= ctx.now + this.params.maxFutureBlockTime,
+    };
+  }
+
+  static fromSchemas(codec, chainSchema, validateSchema, network = 'btc:mainnet') {
+    const params = chainSchema['@graph'].find((n) => n['@id'] === network);
+    const ruleSet = validateSchema['@graph'].find((n) => n['@type'] === 'RuleSet' && n.phase === 'header');
+    return new HeaderEngine(codec, params, ruleSet);
+  }
+
+  // ---- consensus arithmetic ----
+
+  // Expected work to find a block at this target: 2^256 / (target + 1).
+  work(header) {
+    return (1n << 256n) / (this.codec.expandCompact(header.bits) + 1n);
+  }
+
+  // Median of the last (up to) 11 block timestamps.
+  medianTimePast(window) {
+    const times = window.slice(-11).map((h) => h.time).sort((a, b) => a - b);
+    return times[times.length >> 1];
+  }
+
+  // Compact-encode a 256-bit target (inverse of expandCompact), matching
+  // Bitcoin Core's arith_uint256::GetCompact mantissa truncation.
+  compactFromTarget(target) {
+    let size = Math.ceil(target.toString(16).length / 2);
+    let compact = size <= 3
+      ? Number(target << (8n * BigInt(3 - size)))
+      : Number(target >> (8n * BigInt(size - 3)));
+    if (compact & 0x800000) { compact >>= 8; size++; }
+    return (compact | (size << 24)) >>> 0;
+  }
+
+  // The bits required of the block following `prev` at height prevHeight.
+  // Within an epoch: unchanged. At a boundary: retargeted from the previous
+  // epoch's actual timespan. Returns null if the epoch-first header (needed
+  // only at boundaries) was not provided.
+  expectedBits(prev, prevHeight, epochFirst) {
+    if ((prevHeight + 1) % this.interval !== 0) return prev.bits;
+    if (epochFirst == null) return null;
+    return this.retarget(epochFirst.time, prev.time, prev.bits);
+  }
+
+  retarget(firstTime, lastTime, oldBits) {
+    const span = this.params.targetTimespan;
+    const actual = Math.max(span / 4, Math.min(lastTime - firstTime, span * 4));
+    let target = this.codec.expandCompact(oldBits) * BigInt(actual) / BigInt(span);
+    if (target > this.powLimit) target = this.powLimit;
+    return this.compactFromTarget(target);
+  }
+
+  // ---- ruleset execution ----
+
+  validateHeader(ctx) {
+    const results = this.ruleSet.rules.map((rule) => {
+      const outcome = this.checks[rule['@id']](ctx);
+      return {
+        rule: rule['@id'],
+        label: rule.label,
+        ok: outcome,
+        error: outcome === false ? rule.errorCode : null,
+      };
+    });
+    return { ok: results.every((r) => r.ok !== false), results };
+  }
+
+  // Validate consecutive headers starting at startHeight.
+  //   prevContext: up to 11 decoded headers immediately preceding headers[0]
+  //   epochFirsts: {height: header} for epoch-first headers needed at
+  //                retarget boundaries that fall before the window
+  //   now: unix time for the future-time rule (null to skip)
+  validateChain(headers, { startHeight, prevContext = [], epochFirsts = {}, now = null }) {
+    const all = [...prevContext, ...headers];
+    const firstIndex = prevContext.length;
+    const heightOf = (i) => startHeight - prevContext.length + i;
+    let chainWork = 0n;
+
+    return headers.map((header, k) => {
+      const i = firstIndex + k;
+      const height = startHeight + k;
+      const boundaryFirst = height % this.interval === 0 ? height - this.interval : null;
+      const inWindow = boundaryFirst != null && boundaryFirst >= heightOf(0)
+        ? all[boundaryFirst - heightOf(0)]
+        : null;
+      const ctx = {
+        header,
+        height,
+        prev: i > 0 ? all[i - 1] : null,
+        mtpWindow: all.slice(Math.max(0, i - 11), i),
+        epochFirst: inWindow ?? epochFirsts[boundaryFirst] ?? null,
+        now,
+      };
+      const verdict = this.validateHeader(ctx);
+      chainWork += this.work(header);
+      return {
+        height,
+        hash: this.codec.blockHash(header),
+        time: header.time,
+        bits: header.bits,
+        chainWork,
+        ...verdict,
+      };
+    });
+  }
+}

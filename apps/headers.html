@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Header chain verifier — Bitcoin Schema</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de;
+    --fg: #1f2328; --muted: #57606a; --accent: #e8830c; --link: #0969da;
+    --ok: #1a7f37; --bad: #cf222e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .2rem; } h1 span { color: var(--accent); }
+  p.tag { color: var(--muted); margin: 0 0 1.2rem; }
+  a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
+  .controls { display: flex; gap: .8rem; align-items: end; flex-wrap: wrap; }
+  .controls label { font-size: .8rem; color: var(--muted); display: block; }
+  input { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+          border-radius: 8px; padding: .45rem .6rem; font: 14px var(--mono); width: 9rem; }
+  button { background: var(--accent); color: #fff; font-weight: 600; border: none;
+           border-radius: 8px; padding: .55rem 1.4rem; cursor: pointer; font-size: 1rem; }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: wait; }
+  #status { margin-top: 1rem; font: 14px var(--mono); color: var(--muted); }
+  .summary { margin-top: 1rem; padding: .8rem 1.1rem; border-radius: 10px; font-weight: 600; }
+  .summary.ok { background: #dafbe1; color: var(--ok); border: 1px solid #aceebb; }
+  .summary.bad { background: #ffebe9; color: var(--bad); border: 1px solid #ffcecb; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; }
+  th, td { text-align: left; padding: .3rem .55rem; border-top: 1px solid var(--border); }
+  th { color: var(--muted); border-top: none; position: sticky; top: 0; background: var(--bg); }
+  td.mono { font-family: var(--mono); white-space: nowrap; }
+  td.hash { font-family: var(--mono); color: var(--muted); }
+  .y { color: var(--ok); } .n { color: var(--bad); font-weight: 700; } .s { color: var(--muted); }
+  .err { font: 11px var(--mono); color: var(--bad); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Header chain <span>verifier</span></h1>
+  <p class="tag">Headers-only sync: fetch a window of mainnet block headers, then verify them in your
+     browser with the <a href="../schema/validate.jsonld">declarative header ruleset</a> —
+     prev-link, proof-of-work, difficulty retargeting, median-time-past, future-time —
+     executed by the <a href="../codec/headers.js">schema-driven engine</a>, accumulating chain work.
+     · <a href="../index.html">schema</a> · <a href="tx.html">tx decoder</a></p>
+
+  <div class="controls">
+    <div><label for="start">start height (blank = tip − count + 1)</label><input id="start" placeholder="tip window"></div>
+    <div><label for="count">count</label><input id="count" value="50"></div>
+    <button id="go">Sync &amp; verify</button>
+  </div>
+  <div id="status"></div>
+  <div id="out"></div>
+</div>
+<script type="module">
+  import { Codec } from '../codec/codec.js';
+  import { HeaderEngine } from '../codec/headers.js';
+
+  const API = 'https://blockstream.info/api';
+  const $ = (id) => document.getElementById(id);
+  const load = async (p) => (await fetch(p)).json();
+
+  const codec = new Codec(await load('../schema/core.jsonld'));
+  const engine = HeaderEngine.fromSchemas(
+    codec, await load('../schema/chain.jsonld'), await load('../schema/validate.jsonld'));
+  const RULES = engine.ruleSet.rules;
+
+  const text = async (p) => {
+    const r = await fetch(API + p);
+    if (!r.ok) throw new Error(`${p}: HTTP ${r.status}`);
+    return r.text();
+  };
+
+  // fetch headers for a height range with bounded concurrency
+  async function fetchHeaders(from, to) {
+    const heights = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    const out = new Array(heights.length);
+    let next = 0, done = 0;
+    $('status').textContent = `fetching ${heights.length} headers…`;
+    await Promise.all(Array.from({ length: 8 }, async () => {
+      while (next < heights.length) {
+        const i = next++;
+        const hash = await text(`/block-height/${heights[i]}`);
+        out[i] = codec.decode('BlockHeader', await text(`/block/${hash}/header`));
+        $('status').textContent = `fetching headers… ${++done}/${heights.length}`;
+      }
+    }));
+    return out;
+  }
+
+  async function run() {
+    $('go').disabled = true;
+    $('out').innerHTML = '';
+    try {
+      const count = Math.min(parseInt($('count').value || '50', 10), 500);
+      const tip = parseInt(await text('/blocks/tip/height'), 10);
+      const start = $('start').value ? parseInt($('start').value, 10) : tip - count + 1;
+      const end = Math.min(start + count - 1, tip);
+
+      const ctxFrom = Math.max(0, start - 11);
+      const all = await fetchHeaders(ctxFrom, end);
+      const prevContext = all.slice(0, start - ctxFrom);
+      const headers = all.slice(start - ctxFrom);
+
+      // epoch-first headers for any retarget boundary not covered by the window
+      const epochFirsts = {};
+      for (let h = Math.ceil(start / engine.interval) * engine.interval; h <= end; h += engine.interval) {
+        const firstH = h - engine.interval;
+        if (firstH < ctxFrom) {
+          $('status').textContent = `fetching epoch start ${firstH}…`;
+          const hash = await text(`/block-height/${firstH}`);
+          epochFirsts[firstH] = codec.decode('BlockHeader', await text(`/block/${hash}/header`));
+        }
+      }
+
+      $('status').textContent = 'verifying…';
+      const rows = engine.validateChain(headers, {
+        startHeight: start, prevContext, epochFirsts,
+        now: Math.floor(Date.now() / 1000),
+      });
+
+      const failures = rows.filter((r) => !r.ok);
+      const work = rows.at(-1).chainWork;
+      const log2 = (Number(work >> 64n) * 2 ** 64 + Number(work & 0xffffffffffffffffn));
+      const summary = failures.length === 0
+        ? `✓ verified ${rows.length} headers (${start}…${end}) · ${RULES.length} rules each · window work 2^${Math.log2(log2).toFixed(2)}`
+        : `✗ ${failures.length} of ${rows.length} headers failed: ${failures.map((f) =>
+            f.height + ' [' + f.results.filter((r) => r.ok === false).map((r) => r.error).join(',') + ']').join(' · ')}`;
+
+      const mark = (r) => r.ok === true ? '<span class="y">✓</span>'
+        : r.ok === false ? `<span class="n">✗</span><div class="err">${r.error}</div>`
+        : '<span class="s">–</span>';
+
+      $('out').innerHTML = `
+        <div class="summary ${failures.length ? 'bad' : 'ok'}">${summary}</div>
+        <table>
+          <tr><th>height</th><th>hash</th><th>time (UTC)</th><th>bits</th>
+              ${RULES.map((r) => `<th title="${r.errorCode}">${r.label}</th>`).join('')}
+              <th>Σ work</th></tr>
+          ${rows.map((row) => `
+            <tr>
+              <td class="mono">${row.height}${row.height % engine.interval === 0 ? ' ⟲' : ''}</td>
+              <td class="hash">${row.hash.slice(0, 24)}…</td>
+              <td class="mono">${new Date(row.time * 1000).toISOString().slice(0, 19).replace('T', ' ')}</td>
+              <td class="mono">${row.bits.toString(16)}</td>
+              ${row.results.map((r) => `<td>${mark(r)}</td>`).join('')}
+              <td class="mono">${row.chainWork.toString(16)}</td>
+            </tr>`).join('')}
+        </table>
+        <p style="color:var(--muted);font-size:.85rem">⟲ marks a difficulty retarget boundary.
+           Headers fetched from blockstream.info; all decoding and verification happens locally.</p>`;
+      $('status').textContent = '';
+    } catch (e) {
+      $('status').innerHTML = `<span style="color:var(--bad)">✖ ${e.message}</span>`;
+    } finally {
+      $('go').disabled = false;
+    }
+  }
+  $('go').addEventListener('click', run);
+  run();
+</script>
+</body>
+</html>

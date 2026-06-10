@@ -1,0 +1,50 @@
+{
+  "@context": "../context.jsonld",
+  "@graph": [
+    {
+      "@id": "btc:chain",
+      "@type": "Module",
+      "label": "chain",
+      "version": "0.0.2",
+      "comment": "Chain-contextual structures: state that depends on which chain you are following and where its tip is. Nothing in this module is covered by proof-of-work; it parameterizes and indexes the consensus structures defined in core.",
+      "layer": "context"
+    },
+
+    {
+      "@id": "btc:NetworkParams",
+      "@type": "ContextStruct",
+      "module": "btc:chain",
+      "label": "NetworkParams",
+      "comment": "Consensus parameters of a Bitcoin network deployment. These are constants agreed by convention at network genesis, not serialized data.",
+      "fields": [
+        { "property": "btc:networkName", "label": "name", "valueType": "string", "comment": "Human name of the network." },
+        { "property": "btc:magic", "label": "magic", "valueType": "hex", "comment": "Four magic bytes prefixing every P2P message on this network." },
+        { "property": "btc:genesisHash", "label": "genesisHash", "valueType": "hash", "comment": "Hash of the network's genesis block header." },
+        { "property": "btc:powLimit", "label": "powLimit", "valueType": "hex", "comment": "Maximum (easiest) allowed proof-of-work target, as a 256-bit value." },
+        { "property": "btc:targetTimespan", "label": "targetTimespan", "valueType": "u32", "comment": "Difficulty retarget period in seconds: two weeks (1,209,600)." },
+        { "property": "btc:targetSpacing", "label": "targetSpacing", "valueType": "u32", "comment": "Target interval between blocks in seconds: ten minutes (600)." },
+        { "property": "btc:difficultyAdjustmentInterval", "label": "difficultyAdjustmentInterval", "valueType": "u32", "comment": "Blocks per difficulty epoch: targetTimespan / targetSpacing = 2016." },
+        { "property": "btc:maxFutureBlockTime", "label": "maxFutureBlockTime", "valueType": "u32", "comment": "Maximum seconds a block timestamp may be ahead of network-adjusted time: 7200 (2 hours)." },
+        { "property": "btc:halvingInterval", "label": "halvingInterval", "valueType": "u32", "comment": "Blocks between block-subsidy halvings: 210,000." },
+        { "property": "btc:port", "label": "port", "valueType": "u16", "comment": "Default P2P TCP port." }
+      ]
+    },
+
+    {
+      "@id": "btc:mainnet",
+      "@type": "btc:NetworkParams",
+      "label": "mainnet",
+      "comment": "The Bitcoin mainnet, live since 2009-01-03.",
+      "name": "mainnet",
+      "magic": "f9beb4d9",
+      "genesisHash": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
+      "powLimit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "targetTimespan": 1209600,
+      "targetSpacing": 600,
+      "difficultyAdjustmentInterval": 2016,
+      "maxFutureBlockTime": 7200,
+      "halvingInterval": 210000,
+      "port": 8333
+    }
+  ]
+}
