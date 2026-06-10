@@ -123,3 +123,59 @@ export function verifyEcdsa(msgHash, sig, pubkey) {
   if (!R) return false;
   return mod(toAffineX(R), N) === r;
 }
+
+// ---- BIP 340 Schnorr verification ----
+
+import { taggedHash } from './hash.js';
+
+const bigToBytes = (n) => {
+  const out = new Uint8Array(32);
+  for (let i = 31; i >= 0; i--) { out[i] = Number(n & 0xffn); n >>= 8n; }
+  return out;
+};
+
+// Lift an x-only key to the even-y curve point, or null.
+export function liftX(xBytes) {
+  const x = bytesToBig(xBytes);
+  if (x >= P) return null;
+  const c = mod(x * x * x + 7n);
+  const y = modpow(c, (P + 1n) / 4n, P);
+  if (mod(y * y) !== c) return null;
+  return [x, (y & 1n) === 0n ? y : P - y];
+}
+
+export function verifySchnorr(msg32, sig64, pubkey32) {
+  if (sig64.length !== 64 || pubkey32.length !== 32) return false;
+  const Ppoint = liftX(pubkey32);
+  if (!Ppoint) return false;
+  const r = bytesToBig(sig64.subarray(0, 32));
+  const s = bytesToBig(sig64.subarray(32));
+  if (r >= P || s >= N) return false;
+  const e = mod(bytesToBig(taggedHash('BIP0340/challenge',
+    sig64.subarray(0, 32), pubkey32, msg32)), N);
+  // R = s*G - e*P
+  const G = [GX, GY, 1n];
+  const R = jAdd(jMul(G, s), jMul([Ppoint[0], Ppoint[1], 1n], mod(N - e, N)));
+  if (!R) return false;
+  const zi = inv(R[2], P);
+  const ax = mod(R[0] * zi * zi);
+  const ay = mod(R[1] * zi * zi * zi);
+  return (ay & 1n) === 0n && ax === r;
+}
+
+// Verify a taproot output-key commitment: outputKey == lift_x(internalKey) + t*G
+// with the given y-parity, where t = taggedHash("TapTweak", internalKey || merkleRoot).
+export function checkTapTweak(internalKey32, merkleRoot, outputKey32, parity) {
+  const Pp = liftX(internalKey32);
+  if (!Pp) return false;
+  const t = bytesToBig(taggedHash('TapTweak',
+    internalKey32, ...(merkleRoot ? [merkleRoot] : [])));
+  if (t >= N) return false;
+  const G = [GX, GY, 1n];
+  const Q = jAdd([Pp[0], Pp[1], 1n], jMul(G, t));
+  if (!Q) return false;
+  const zi = inv(Q[2], P);
+  const qx = mod(Q[0] * zi * zi);
+  const qy = mod(Q[1] * zi * zi * zi);
+  return qx === bytesToBig(outputKey32) && Number(qy & 1n) === parity;
+}

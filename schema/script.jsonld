@@ -5,7 +5,7 @@
       "@id": "btc:script",
       "@type": "Module",
       "label": "script",
-      "version": "0.0.7",
+      "version": "0.0.8",
       "comment": "The Bitcoin script language surface: the opcode set, the standard output script templates with their address encodings, and signature hash types. Templates are declarative \u2014 the classifier matches them as data.",
       "layer": "consensus"
     },
@@ -894,6 +894,98 @@
       "maxOpsPerScript": 201,
       "maxStackSize": 1000,
       "maxMultisigKeys": 20
+    },
+    {
+      "@id": "btc:ControlBlock",
+      "@type": "ContextStruct",
+      "module": "btc:script",
+      "label": "ControlBlock",
+      "bip": 341,
+      "comment": "The proof carried in a taproot script-path witness (as its last element, after removing any annex): it demonstrates that the revealed leaf script is committed by the output key. Length 33 + 32m bytes, m <= 128.",
+      "fields": [
+        {
+          "property": "btc:leafVersionParity",
+          "label": "leafVersionAndParity",
+          "valueType": "u8",
+          "comment": "High 7 bits: the leaf version (0xc0 = tapscript). Low bit: the y-parity of the tweaked output key."
+        },
+        {
+          "property": "btc:internalKey",
+          "label": "internalKey",
+          "valueType": "hex",
+          "comment": "The 32-byte x-only internal public key P, before tweaking."
+        },
+        {
+          "property": "btc:merklePath",
+          "label": "merklePath",
+          "valueType": "hex",
+          "comment": "Zero or more 32-byte sibling hashes; combined pairwise (lexicographically ordered) with TapBranch tagged hashes up to the merkle root, which feeds the TapTweak."
+        }
+      ]
+    },
+    {
+      "@id": "btc:TaprootConstants",
+      "@type": "ContextStruct",
+      "module": "btc:script",
+      "label": "TaprootConstants",
+      "comment": "Constants of the taproot construction (BIP 340/341/342). Tagged hashes are sha256(sha256(tag) || sha256(tag) || msg).",
+      "fields": [
+        {
+          "property": "btc:tapLeafTag",
+          "label": "tapLeafTag",
+          "valueType": "string",
+          "comment": "Tag for hashing a leaf script."
+        },
+        {
+          "property": "btc:tapBranchTag",
+          "label": "tapBranchTag",
+          "valueType": "string",
+          "comment": "Tag for combining two tree nodes."
+        },
+        {
+          "property": "btc:tapTweakTag",
+          "label": "tapTweakTag",
+          "valueType": "string",
+          "comment": "Tag for tweaking the internal key with the tree root."
+        },
+        {
+          "property": "btc:tapSighashTag",
+          "label": "tapSighashTag",
+          "valueType": "string",
+          "comment": "Tag wrapping the BIP 341 signature message."
+        },
+        {
+          "property": "btc:tapscriptLeafVersion",
+          "label": "tapscriptLeafVersion",
+          "valueType": "u8",
+          "comment": "The leaf version with defined semantics: 0xc0 (tapscript, BIP 342)."
+        },
+        {
+          "property": "btc:annexPrefix",
+          "label": "annexPrefix",
+          "valueType": "u8",
+          "comment": "A final witness element beginning 0x50 (with >= 2 elements) is the annex, reserved for future use but committed by the sighash."
+        },
+        {
+          "property": "btc:sigopsBudgetBase",
+          "label": "sigopsBudgetBase",
+          "valueType": "u32",
+          "comment": "Tapscript signature budget: 50 plus the serialized witness size; each non-empty signature check costs 50."
+        }
+      ]
+    },
+    {
+      "@id": "btc:taproot",
+      "@type": "btc:TaprootConstants",
+      "label": "taproot",
+      "comment": "The taproot constants deployed on mainnet at height 709,632.",
+      "tapLeafTag": "TapLeaf",
+      "tapBranchTag": "TapBranch",
+      "tapTweakTag": "TapTweak",
+      "tapSighashTag": "TapSighash",
+      "tapscriptLeafVersion": 192,
+      "annexPrefix": 80,
+      "sigopsBudgetBase": 50
     }
   ]
 }

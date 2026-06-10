@@ -183,3 +183,20 @@ export function ripemd160(data) {
 }
 
 export const hash160 = (data) => ripemd160(sha256(data));
+
+// BIP 340 tagged hash: sha256(sha256(tag) || sha256(tag) || msg).
+const tagMidstates = new Map();
+export function taggedHash(tag, ...chunks) {
+  let pre = tagMidstates.get(tag);
+  if (!pre) {
+    const th = sha256(new TextEncoder().encode(tag));
+    pre = new Uint8Array(64); pre.set(th); pre.set(th, 32);
+    tagMidstates.set(tag, pre);
+  }
+  const len = chunks.reduce((s, c) => s + c.length, 64);
+  const buf = new Uint8Array(len);
+  buf.set(pre);
+  let p = 64;
+  for (const c of chunks) { buf.set(c, p); p += c.length; }
+  return sha256(buf);
+}
