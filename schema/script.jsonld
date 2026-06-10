@@ -5,7 +5,7 @@
       "@id": "btc:script",
       "@type": "Module",
       "label": "script",
-      "version": "0.0.4",
+      "version": "0.0.7",
       "comment": "The Bitcoin script language surface: the opcode set, the standard output script templates with their address encodings, and signature hash types. Templates are declarative \u2014 the classifier matches them as data.",
       "layer": "consensus"
     },
@@ -844,6 +844,56 @@
           "comment": "Flag: commit only to the signed input, allowing others to add inputs."
         }
       ]
+    },
+    {
+      "@id": "btc:ScriptLimits",
+      "@type": "ContextStruct",
+      "module": "btc:script",
+      "label": "ScriptLimits",
+      "comment": "Consensus limits on script execution. Enforced by the interpreter; exceeding any of them fails the script.",
+      "fields": [
+        {
+          "property": "btc:maxScriptSize",
+          "label": "maxScriptSize",
+          "valueType": "u32",
+          "comment": "Maximum script length in bytes: 10,000."
+        },
+        {
+          "property": "btc:maxScriptElementSize",
+          "label": "maxScriptElementSize",
+          "valueType": "u32",
+          "comment": "Maximum size of a stack element: 520 bytes."
+        },
+        {
+          "property": "btc:maxOpsPerScript",
+          "label": "maxOpsPerScript",
+          "valueType": "u32",
+          "comment": "Maximum non-push operations per script: 201."
+        },
+        {
+          "property": "btc:maxStackSize",
+          "label": "maxStackSize",
+          "valueType": "u32",
+          "comment": "Maximum combined main+alt stack depth: 1,000."
+        },
+        {
+          "property": "btc:maxMultisigKeys",
+          "label": "maxMultisigKeys",
+          "valueType": "u32",
+          "comment": "Maximum public keys in a CHECKMULTISIG: 20."
+        }
+      ]
+    },
+    {
+      "@id": "btc:scriptLimits",
+      "@type": "btc:ScriptLimits",
+      "label": "scriptLimits",
+      "comment": "The consensus script-execution limits.",
+      "maxScriptSize": 10000,
+      "maxScriptElementSize": 520,
+      "maxOpsPerScript": 201,
+      "maxStackSize": 1000,
+      "maxMultisigKeys": 20
     }
   ]
 }
