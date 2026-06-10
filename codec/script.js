@@ -165,3 +165,69 @@ export class ScriptEngine {
     return { type: 'nonstandard', address: null, asm: this.asm(hex) };
   }
 }
+
+// ---- address decoding (the inverse of the encoders above) ----
+
+export function base58checkDecode(str) {
+  let n = 0n;
+  for (const ch of str) {
+    const v = B58.indexOf(ch);
+    if (v < 0) return null;
+    n = n * 58n + BigInt(v);
+  }
+  const bytes = [];
+  while (n > 0n) { bytes.unshift(Number(n & 0xffn)); n >>= 8n; }
+  for (const ch of str) { if (ch !== '1') break; bytes.unshift(0); }
+  if (bytes.length < 5) return null;
+  const data = Uint8Array.from(bytes);
+  const payload = data.subarray(0, data.length - 4);
+  const check = dsha256(payload).subarray(0, 4);
+  if (!check.every((b, i) => b === data[data.length - 4 + i])) return null;
+  return { version: payload[0], payload: payload.subarray(1) };
+}
+
+export function bech32Decode(addr) {
+  const lower = addr.toLowerCase();
+  if (addr !== lower && addr !== addr.toUpperCase()) return null;
+  const sep = lower.lastIndexOf('1');
+  if (sep < 1 || sep + 7 > lower.length) return null;
+  const hrp = lower.slice(0, sep);
+  const data = [...lower.slice(sep + 1)].map((c) => B32.indexOf(c));
+  if (data.includes(-1)) return null;
+  const hrpExp = [...[...hrp].map((c) => c.charCodeAt(0) >>> 5), 0, ...[...hrp].map((c) => c.charCodeAt(0) & 31)];
+  const polymod = bech32Polymod([...hrpExp, ...data]);
+  const encoding = polymod === 1 ? 'bech32' : polymod === 0x2bc830a3 ? 'bech32m' : null;
+  if (!encoding) return null;
+  const values = data.slice(0, -6);
+  const witnessVersion = values[0];
+  let acc = 0, bits = 0;
+  const program = [];
+  for (const v of values.slice(1)) {
+    acc = (acc << 5) | v; bits += 5;
+    while (bits >= 8) { bits -= 8; program.push((acc >>> bits) & 0xff); }
+  }
+  if (bits >= 5 || ((acc << (8 - bits)) & 0xff)) return null;
+  return { hrp, witnessVersion, program: Uint8Array.from(program), encoding };
+}
+
+// address -> scriptPubKey hex for the given NetworkParams, or null.
+export function addressToScript(address, params) {
+  const b32 = bech32Decode(address);
+  if (b32) {
+    if (b32.hrp !== params.bech32Hrp) return null;
+    const { witnessVersion: v, program, encoding } = b32;
+    if (v < 0 || v > 16 || program.length < 2 || program.length > 40) return null;
+    if (v === 0 && (encoding !== 'bech32' || (program.length !== 20 && program.length !== 32))) return null;
+    if (v > 0 && encoding !== 'bech32m') return null;
+    const opcode = v === 0 ? 0 : 0x50 + v;
+    return opcode.toString(16).padStart(2, '0')
+      + program.length.toString(16).padStart(2, '0') + bytesToHex(program);
+  }
+  const b58 = base58checkDecode(address);
+  if (b58 && b58.payload.length === 20) {
+    const h = bytesToHex(b58.payload);
+    if (b58.version === params.p2pkhVersion) return '76a914' + h + '88ac';
+    if (b58.version === params.p2shVersion) return 'a914' + h + '87';
+  }
+  return null;
+}

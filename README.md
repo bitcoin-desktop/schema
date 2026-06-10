@@ -1,6 +1,6 @@
 # Bitcoin Schema
 
-**v0.0.8** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.9** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
@@ -10,7 +10,8 @@ and (eventually) declarative validation rules in the spirit of
 **Apps:** [transaction decoder](https://bitcoin-desktop.github.io/schema/apps/tx.html) ·
 [header chain verifier](https://bitcoin-desktop.github.io/schema/apps/headers.html) ·
 [SPV proof verifier](https://bitcoin-desktop.github.io/schema/apps/spv.html) ·
-[pruned block validator](https://bitcoin-desktop.github.io/schema/apps/blocks.html)
+[pruned block validator](https://bitcoin-desktop.github.io/schema/apps/blocks.html) ·
+[block miner](https://bitcoin-desktop.github.io/schema/apps/mine.html)
 
 > Independent community project; not affiliated with Bitcoin Core.
 
@@ -60,7 +61,7 @@ Strict one-way dependencies (Hornet-style): a module may only reference modules 
 | `proof` | **partial** | MerkleBlock / partial merkle tree (BIP 37) with full wire annotations. Planned: compact filters (BIP 157/158) |
 | `script` | **partial** | full Opcode enumeration, ScriptType templates as data with address-encoding rules, SighashType, ScriptLimits — plus a working [interpreter](codec/interpreter.js): per-opcode handlers, legacy + BIP 143 + BIP 341 sighash, pure-BigInt ECDSA and Schnorr, every spend path: p2pk/p2pkh/multisig/p2sh (incl. wrapped segwit)/p2wpkh/p2wsh/**p2tr key & script path** with tapscript (CHECKSIGADD, OP_SUCCESSx). Planned: descriptors |
 | `p2p` | planned | message envelope and the wire messages |
-| `mine` | planned | block template, coinbase construction, targets |
+| `mine` | **shipped** | BlockTemplate (getblocktemplate-shaped), coinbase construction (BIP 34 push, witness commitment, extraNonce), nonce grinding — plus testnet/signet/regtest NetworkParams instances and address *decoding* (base58check, bech32/bech32m) |
 | `wallet` | planned | BIP 32 keys, descriptors, PSBT, BIP 21 |
 
 The [header engine](codec/headers.js) executes the `validate` ruleset directly from the schema:
@@ -92,7 +93,13 @@ Each milestone is a working artifact, not just more schema:
    [apps/blocks.html](https://bitcoin-desktop.github.io/schema/apps/blocks.html).
    Rules whose context was pruned away are *skipped and say so*. Script/signature execution
    is the stated remaining gap.
-4. **Full node** — `p2p` + `mine`: relay, mempool, block template construction.
+4. **Mining** ✅ (v0.0.9) — assemble and mine real blocks, then judge them with the same
+   schema's validator (independent codepaths, one source of truth):
+   [apps/mine.html](https://bitcoin-desktop.github.io/schema/apps/mine.html) mines a regtest
+   chain in the browser and self-validates every rule, including BIP 34 heights and witness
+   commitments. The negative tests are the fun ones: a premature coinbase spend and a
+   toy-difficulty mainnet continuation are both rejected by our own rules.
+5. **Full node** — `p2p`: message envelope and wire messages, relay, mempool.
 
 ## Using the codec
 

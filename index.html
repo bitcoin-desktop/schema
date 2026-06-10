@@ -49,6 +49,7 @@
        structures, byte serialization, and derivations. One schema; many projections:
        binary codec, explorer views, RDF, validation.</p>
     <nav>
+      <a href="apps/mine.html">⛏ block miner</a>
       <a href="apps/blocks.html">🧱 pruned block validator</a>
       <a href="apps/headers.html">⛓ header chain verifier</a>
       <a href="apps/spv.html">🛡 spv proof verifier</a>
@@ -69,7 +70,7 @@
   </footer>
 </div>
 <script type="module">
-  const MODULES = ['core', 'script', 'proof', 'chain', 'validate'];
+  const MODULES = ['core', 'script', 'proof', 'chain', 'mine', 'validate'];
   const short = (id) => id.replace(/^btc:/, '');
   const main = document.getElementById('classes');
   main.innerHTML = '';

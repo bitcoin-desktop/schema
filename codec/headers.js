@@ -77,6 +77,7 @@ export class HeaderEngine {
   // epoch's actual timespan. Returns null if the epoch-first header (needed
   // only at boundaries) was not provided.
   expectedBits(prev, prevHeight, epochFirst) {
+    if (this.params.powNoRetargeting) return prev.bits;
     if ((prevHeight + 1) % this.interval !== 0) return prev.bits;
     if (epochFirst == null) return null;
     return this.retarget(epochFirst.time, prev.time, prev.bits);

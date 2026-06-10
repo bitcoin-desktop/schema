@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Block miner — Bitcoin Schema</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f6f8fa; --border: #d0d7de;
+    --fg: #1f2328; --muted: #57606a; --accent: #e8830c; --link: #0969da;
+    --ok: #1a7f37; --bad: #cf222e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+  h1 { font-size: 1.5rem; margin: 0 0 .2rem; } h1 span { color: var(--accent); }
+  p.tag { color: var(--muted); margin: 0 0 1.2rem; }
+  a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
+  .controls { display: flex; gap: .9rem; align-items: end; flex-wrap: wrap; }
+  .controls label { font-size: .8rem; color: var(--muted); display: block; }
+  input, select { background: var(--bg); color: var(--fg); border: 1px solid var(--border);
+          border-radius: 8px; padding: .45rem .6rem; font: 14px var(--mono); }
+  input#address { width: 26rem; max-width: 90vw; }
+  button { background: var(--accent); color: #fff; font-weight: 600; border: none;
+           border-radius: 8px; padding: .55rem 1.4rem; cursor: pointer; font-size: 1rem; }
+  button:hover { filter: brightness(1.1); }
+  button:disabled { opacity: .5; cursor: wait; }
+  #status { margin-top: 1rem; font: 14px var(--mono); color: var(--muted); }
+  .summary { margin-top: 1.2rem; padding: .9rem 1.2rem; border-radius: 10px; font-weight: 600; }
+  .summary.ok { background: #dafbe1; color: var(--ok); border: 1px solid #aceebb; }
+  .summary.bad { background: #ffebe9; color: var(--bad); border: 1px solid #ffcecb; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+          padding: 1rem 1.2rem; margin-top: 1.2rem; }
+  .card h2 { font-size: 1.05rem; margin: 0 0 .1rem; font-family: var(--mono); }
+  .card .hash { font: 12px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+  .facts { display: flex; gap: 1.4rem; flex-wrap: wrap; margin: .6rem 0; font: 13px var(--mono); }
+  .facts b { color: var(--accent); font-weight: 600; }
+  .rules { display: flex; gap: .35rem .9rem; flex-wrap: wrap; font: 12px var(--mono); }
+  .rules span { white-space: nowrap; }
+  .y::before { content: '✓ '; color: var(--ok); }
+  .n::before { content: '✗ '; color: var(--bad); }
+  .n { color: var(--bad); font-weight: 700; }
+  .s { color: var(--muted); } .s::before { content: '– '; }
+  .phase { color: var(--muted); font-weight: 600; margin-right: .2rem; }
+  details { margin-top: .6rem; }
+  details pre { font: 11px var(--mono); overflow-wrap: anywhere; white-space: pre-wrap;
+                margin: .4rem 0 0; color: var(--muted); }
+  .note { color: var(--muted); font-size: .85rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Block <span>miner</span></h1>
+  <p class="tag">Mine a regtest chain in your browser, then judge it with the same schema's
+     <a href="../schema/validate.jsonld">32-rule validator</a>. The miner constructs consensus
+     fields (BIP 34 coinbase, merkle root, header) and grinds the nonce; the validator —
+     an independent codepath over the same JSON-LD — runs all four phases on the result.
+     · <a href="../index.html">schema</a> · <a href="blocks.html">block validator</a></p>
+
+  <div class="controls">
+    <div><label for="address">pay coinbase to (regtest address)</label>
+      <input id="address" spellcheck="false" value="bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080"></div>
+    <div><label for="count">blocks (max 6)</label><input id="count" value="3" style="width:5rem"></div>
+    <div><label for="vanity">extra leading zero bits (show-off grind)</label>
+      <select id="vanity"><option value="0">consensus only</option><option value="12">12</option>
+      <option value="16" selected>16</option><option value="20">20</option><option value="22">22</option></select></div>
+    <button id="go">Mine &amp; self-validate</button>
+  </div>
+  <div id="status"></div>
+  <div id="out"></div>
+</div>
+<script type="module">
+  import { Codec } from '../codec/codec.js';
+  import { Miner } from '../codec/mine.js';
+  import { HeaderEngine } from '../codec/headers.js';
+  import { BlockEngine } from '../codec/blocks.js';
+  import { addressToScript } from '../codec/script.js';
+
+  const $ = (id) => document.getElementById(id);
+  const load = async (p) => (await fetch(p)).json();
+  const codec = new Codec(await load('../schema/core.jsonld'));
+  const chainSchema = await load('../schema/chain.jsonld');
+  const validateSchema = await load('../schema/validate.jsonld');
+  const scriptSchema = await load('../schema/script.jsonld');
+  const regtest = chainSchema['@graph'].find((n) => n['@id'] === 'btc:regtest');
+  const miner = Miner.fromSchemas(codec, chainSchema, 'btc:regtest');
+  const headerEngine = HeaderEngine.fromSchemas(codec, chainSchema, validateSchema, 'btc:regtest');
+  const blockEngine = BlockEngine.fromSchemas(codec, chainSchema, validateSchema, scriptSchema, 'btc:regtest');
+
+  // regtest genesis: the mainnet genesis coinbase under regtest pow params
+  const genesisHeader = {
+    version: 1,
+    prevBlockHash: '0'.repeat(64),
+    merkleRoot: '4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2127b7afdeda33b',
+    time: 1296688602, bits: 0x207fffff, nonce: 2,
+  };
+
+  const mark = (r) => `<span class="${r.ok === true ? 'y' : r.ok === false ? 'n' : 's'}"
+    title="${r.ok === false ? r.error : r.ok === null ? 'skipped (context unavailable / not activated)' : 'pass'}">${r.label}</span>`;
+
+  async function grind(template, vanityBits) {
+    const consensus = codec.expandCompact(template.bits);
+    const vanity = vanityBits ? ((1n << BigInt(256 - vanityBits)) - 1n) : consensus;
+    const target = consensus < vanity ? consensus : vanity;
+    const block = miner.assemble(template);
+    const t0 = performance.now();
+    let attempts = 0;
+    for (let nonce = 0; nonce <= 0xffffffff; nonce++) {
+      block.header.nonce = nonce;
+      attempts++;
+      const hash = codec.blockHash(block.header);
+      if (BigInt('0x' + hash) <= target) {
+        return { block, hash, attempts, ms: performance.now() - t0 };
+      }
+      if (attempts % 3000 === 0) {
+        $('status').textContent = `height ${template.height}: ${attempts.toLocaleString()} hashes… (${(attempts / ((performance.now() - t0) / 1000) / 1000).toFixed(0)} kH/s)`;
+        await new Promise((r) => setTimeout(r));
+      }
+    }
+    throw new Error('nonce space exhausted');
+  }
+
+  async function run() {
+    $('go').disabled = true;
+    $('out').innerHTML = '';
+    try {
+      const scriptPubKey = addressToScript($('address').value.trim(), regtest);
+      if (!scriptPubKey) throw new Error('not a valid regtest address (bcrt1…, m/n…, or 2…)');
+      const count = Math.max(1, Math.min(parseInt($('count').value || '3', 10), 6));
+      $('count').value = count;
+      const vanityBits = parseInt($('vanity').value, 10);
+
+      const prevHeaders = [genesisHeader];
+      const utxo = new Map();
+      const now = Math.floor(Date.now() / 1000);
+      let prevHash = codec.blockHash(genesisHeader);
+      let time = Math.max(genesisHeader.time + 600, now - count * 600);
+      let allOk = true;
+      const cards = [];
+
+      for (let height = 1; height <= count; height++) {
+        const { block, hash, attempts, ms } = await grind(
+          { prevHash, height, bits: 0x207fffff, time, scriptPubKey }, vanityBits);
+
+        $('status').textContent = `height ${height}: validating…`;
+        const headerRow = headerEngine.validateChain([block.header], {
+          startHeight: height, prevContext: prevHeaders.slice(-11), now: now + 600,
+        })[0];
+        const structural = blockEngine.validateBlockStructure(block);
+        const txOk = block.transactions.every((tx, i) => blockEngine.validateTransaction(tx, i === 0).ok);
+        const mtpWindow = prevHeaders.slice(-11).map((h) => h.time).sort((a, b) => a - b);
+        const context = blockEngine.validateBlockContext(block, {
+          height, utxo, external: new Map(), mtp: mtpWindow[mtpWindow.length >> 1],
+        });
+        blockEngine.applyBlock(utxo, block, height);
+        const ok = headerRow.ok && structural.ok && txOk && context.ok;
+        allOk = allOk && ok;
+
+        cards.push(`
+          <div class="card">
+            <h2>#${height} ${ok ? '✅' : '❌'} <span style="color:var(--muted);font-weight:400">mined in ${attempts.toLocaleString()} attempts · ${(ms / 1000).toFixed(2)}s · ${(attempts / Math.max(ms, 1) ).toFixed(1)} kH/s</span></h2>
+            <div class="hash">${hash}</div>
+            <div class="facts">
+              <span>subsidy <b>${(miner.subsidy(height) / 1e8).toFixed(0)} BTC</b> → your address</span>
+              <span>coinbase txid <b>${codec.txid(block.transactions[0]).slice(0, 16)}…</b></span>
+              <span>utxo set <b>${utxo.size}</b></span>
+            </div>
+            <div class="rules"><span class="phase">header</span>${headerRow.results.map(mark).join('')}</div>
+            <div class="rules"><span class="phase">tx</span><span class="y">coinbase passes all 7</span></div>
+            <div class="rules"><span class="phase">block</span>${structural.results.map(mark).join('')}</div>
+            <div class="rules"><span class="phase">context</span>${context.results.map(mark).join('')}</div>
+            <details><summary style="font:12px var(--mono);color:var(--muted);cursor:pointer">raw block hex (${codec.encode('Block', block).length} bytes)</summary>
+              <pre>${codec.encodeHex('Block', block)}</pre></details>
+          </div>`);
+
+        prevHeaders.push(block.header);
+        prevHash = hash;
+        time += 600;
+      }
+
+      $('out').innerHTML = `
+        <div class="summary ${allOk ? 'ok' : 'bad'}">
+          ${allOk
+            ? `✓ mined a ${count}-block regtest chain and self-validated it: every rule in all four phases, including BIP 34 coinbase heights — ${count * 50} BTC (regtest) to your address`
+            : `✗ a mined block failed validation — see below`}
+        </div>
+        ${cards.join('')}
+        <p class="note">Proof-of-work target is regtest consensus (bits 0x207fffff — the difficulty rule
+          forbids the miner from choosing); the "extra leading zero bits" makes the grind visibly harder
+          without breaking any rule, since more work than required is always valid.
+          Everything happens locally; nothing is broadcast.</p>`;
+      $('status').textContent = '';
+    } catch (e) {
+      $('status').innerHTML = `<span style="color:var(--bad)">✖ ${e.message}</span>`;
+    } finally {
+      $('go').disabled = false;
+    }
+  }
+  $('go').addEventListener('click', run);
+  run();
+</script>
+</body>
+</html>
