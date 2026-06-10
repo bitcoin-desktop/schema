@@ -6,7 +6,7 @@
 //
 // Zero dependencies: the WebSocket server is codec/ws.js.
 //
-//   node bridge/bridge.mjs [--network mainnet|testnet4] [--port 8334] [--peer host[:port]]
+//   node bridge/bridge.js [--network mainnet|testnet4] [--port 8334] [--peer host[:port]]
 
 import net from 'node:net';
 import http from 'node:http';

@@ -296,7 +296,7 @@ export class LightNode {
 }
 
 // A bridge-backed source: speaks the schema's own wire messages over a
-// WebSocket to a bridge daemon (bridge/bridge.mjs), which relays them to a
+// WebSocket to a bridge daemon (bridge/bridge.js), which relays them to a
 // real Bitcoin peer. Works in browsers and Node (global WebSocket).
 export class BridgeSource {
   constructor(url, codec, p2pEngine) {
