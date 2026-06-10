@@ -1,0 +1,11 @@
+{
+  "name": "retarget-32256",
+  "comment": "The first difficulty retarget in Bitcoin's history (2009-12-30). Expected bits of block 32256 derive from the timestamps of blocks 30240 and 32255.",
+  "interval": 2016,
+  "epochFirstHeight": 30240,
+  "epochFirst": "01000000e6bf7fd7f7790a63786faa878d0dc7fd8f2ff365732e45862c66075100000000700d342f65c7b6834dffb615358a1897016f0448913372190cbe3d27a4b53355b1512b4bffff001dbfb02519",
+  "epochLastHeight": 32255,
+  "epochLast": "0100000049c1daab3b6536ff1b2633c3a316a6e06ec287676cdeec4ca7baae6b00000000ac10b36b8f354b3353207de15940a5edbc05bb8364af75b4b5409e7823f2b48923ec3a4bffff001dbd5fa412",
+  "nextHeight": 32256,
+  "next": "010000004b0360d834a330ec7833e30e1f523ee05a0793361e29a73421964f980000000027b64a020af294e903feed93768705336a20090612a043f47af462a2f5e5b564f8ee3a4b6ad8001dd3a43707"
+}

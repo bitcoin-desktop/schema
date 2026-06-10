@@ -1,12 +1,14 @@
 # Bitcoin Schema
 
-**v0.0.1** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.2** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
 [Hornet Node](https://hornetnode.org/paper.html)'s formal consensus specification.
 
-**Live:** https://bitcoin-desktop.github.io/schema/ · **Decoder app:** [apps/tx.html](https://bitcoin-desktop.github.io/schema/apps/tx.html)
+**Live:** https://bitcoin-desktop.github.io/schema/ ·
+**Apps:** [transaction decoder](https://bitcoin-desktop.github.io/schema/apps/tx.html) ·
+[header chain verifier](https://bitcoin-desktop.github.io/schema/apps/headers.html)
 
 > Independent community project; not affiliated with Bitcoin Core.
 
@@ -50,21 +52,28 @@ Strict one-way dependencies (Hornet-style): a module may only reference modules 
 
 | module | status | contents |
 |---|---|---|
-| `core` | **v0.0.1** | Block, BlockHeader, Transaction, TransactionInput, TransactionOutput, OutPoint, Witness — full wire annotations + derivations |
+| `core` | **shipped** | Block, BlockHeader, Transaction, TransactionInput, TransactionOutput, OutPoint, Witness — full wire annotations + derivations |
+| `chain` | **partial** | NetworkParams + the mainnet instance (powLimit, retarget interval, timespans, magic). Planned: UTXO set, mempool, deployments |
+| `validate` | **partial** | the header-phase ruleset as data: five ordered rules (prev-link, proof-of-work, difficulty, median-time-past, future-time) with Bitcoin Core error codes. Planned: transaction and block phases |
 | `script` | planned | opcodes, script types, addresses, taproot |
-| `chain` | planned | UTXO set, mempool, network params, deployments |
 | `proof` | planned | merkle proofs, compact filters (BIP 157/158), SPV |
-| `validate` | planned | declarative rulesets as data: phase, context, error code, BIP, activation |
 | `p2p` | planned | message envelope and the wire messages |
 | `mine` | planned | block template, coinbase construction, targets |
 | `wallet` | planned | BIP 32 keys, descriptors, PSBT, BIP 21 |
+
+The [header engine](codec/headers.js) executes the `validate` ruleset directly from the schema:
+rule order, identity, and error codes are data; the engine binds pure check implementations to
+rule IDs (Hornet-style). Difficulty retargeting is tested against the first retarget in history
+(block 32256, 2009-12-30) and a current one, reproduced bit-for-bit; chain work matches Core's
+arithmetic (genesis = `0x100010001`).
 
 ## Roadmap
 
 Each milestone is a working artifact, not just more schema:
 
-1. **Headers** — headers-only chain sync and verification (PoW, difficulty, chain work) in the
-   browser, from `core` + `proof`. ✅ `core` structures and PoW check shipped in v0.0.1.
+1. **Headers** ✅ (v0.0.2) — headers-only chain sync and verification (PoW, difficulty
+   retargeting, median-time-past, chain work) in the browser:
+   [apps/headers.html](https://bitcoin-desktop.github.io/schema/apps/headers.html).
 2. **SPV** — verify transaction inclusion with merkle proofs and compact filters.
 3. **Pruned node** — full validation with UTXO set evolution, pruned storage.
 4. **Full node** — `p2p` + `mine`: relay, mempool, block template construction.

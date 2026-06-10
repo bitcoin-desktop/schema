@@ -1,0 +1,64 @@
+{
+  "@context": "../context.jsonld",
+  "@graph": [
+    {
+      "@id": "btc:validate",
+      "@type": "Module",
+      "label": "validate",
+      "version": "0.0.2",
+      "comment": "Validation rules as data, in the spirit of Hornet Node's formal consensus specification: ordered rulesets of pure checks, each enforcing a single invariant and naming a typed error. Error codes match Bitcoin Core's reject reasons so results are comparable across implementations.",
+      "layer": "rules"
+    },
+
+    {
+      "@id": "btc:HeaderRules",
+      "@type": "RuleSet",
+      "module": "btc:validate",
+      "label": "HeaderRules",
+      "phase": "header",
+      "comment": "Contextual validation of a block header against its predecessor chain. Sufficient for headers-only sync: a chain passing these rules has verifiable cumulative proof-of-work.",
+      "rules": [
+        {
+          "@id": "btc:rule-header-prev-link",
+          "@type": "ValidationRule",
+          "label": "prev-link",
+          "errorCode": "bad-prevblk",
+          "comment": "The header's prevBlockHash must equal the hash of the preceding header, extending a known chain.",
+          "check": "header.prevBlockHash == hash(prev)"
+        },
+        {
+          "@id": "btc:rule-header-pow",
+          "@type": "ValidationRule",
+          "label": "proof-of-work",
+          "errorCode": "high-hash",
+          "comment": "The header's hash, interpreted as a 256-bit number, must not exceed the target encoded by its bits field.",
+          "check": "hash(header) <= expandCompact(header.bits)"
+        },
+        {
+          "@id": "btc:rule-header-difficulty",
+          "@type": "ValidationRule",
+          "label": "difficulty",
+          "errorCode": "bad-diffbits",
+          "comment": "The bits field must equal the expected target: unchanged within a difficulty epoch; at each 2016-block boundary, retargeted by the previous epoch's actual timespan (clamped to [targetTimespan/4, targetTimespan*4]), never easier than powLimit.",
+          "check": "header.bits == expectedBits(prev, prevHeight, epochFirst, params)"
+        },
+        {
+          "@id": "btc:rule-header-mtp",
+          "@type": "ValidationRule",
+          "label": "median-time-past",
+          "errorCode": "time-too-old",
+          "comment": "The header's timestamp must be strictly greater than the median timestamp of the previous 11 blocks.",
+          "check": "header.time > medianTimePast(prev11)"
+        },
+        {
+          "@id": "btc:rule-header-time-future",
+          "@type": "ValidationRule",
+          "label": "future-time",
+          "errorCode": "time-too-new",
+          "comment": "The header's timestamp must be no more than maxFutureBlockTime (2 hours) ahead of network-adjusted time.",
+          "check": "header.time <= now + params.maxFutureBlockTime"
+        }
+      ]
+    }
+  ]
+}

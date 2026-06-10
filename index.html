@@ -49,8 +49,8 @@
        structures, byte serialization, and derivations. One schema; many projections:
        binary codec, explorer views, RDF, validation.</p>
     <nav>
+      <a href="apps/headers.html">⛓ header chain verifier</a>
       <a href="apps/tx.html">⚡ transaction decoder</a>
-      <a href="schema/core.jsonld">schema/core.jsonld</a>
       <a href="context.jsonld">context.jsonld</a>
       <a href="https://github.com/bitcoin-desktop/schema">github</a>
     </nav>
@@ -67,35 +67,66 @@
   </footer>
 </div>
 <script type="module">
-  const res = await fetch('schema/core.jsonld');
-  const schema = await res.json();
-  const nodes = schema['@graph'];
+  const MODULES = ['core', 'chain', 'validate'];
   const short = (id) => id.replace(/^btc:/, '');
   const main = document.getElementById('classes');
   main.innerHTML = '';
 
-  const module_ = nodes.find((n) => n['@type'] === 'Module');
-  if (module_?.version) document.getElementById('version').textContent = 'v' + module_.version;
+  const rows = (fields, wire) => fields.map((f) => `
+    <tr>
+      <td class="name">${f.label}</td>
+      <td class="type">${wire ? (f.wireType === 'vec' ? `vec&lt;${short(f.itemType)}&gt;`
+        : f.wireType === 'struct' ? short(f.structType) : (f.wireType ?? f.valueType)) : 'derived'}</td>
+      <td class="desc">${wire ? (f.presentIf ? `<b style="color:var(--accent)">if ${f.presentIf}:</b> ` : '') + f.comment
+        : `<code>${f.derivation}</code><br>${f.comment}`}</td>
+    </tr>`).join('');
 
-  for (const node of nodes.filter((n) => n['@type'] === 'ConsensusStruct')) {
-    const card = document.createElement('section');
-    card.className = 'card';
-    const rows = (fields, wire) => fields.map((f) => `
-      <tr>
-        <td class="name">${f.label}</td>
-        <td class="type">${wire ? (f.wireType === 'vec' ? `vec&lt;${short(f.itemType)}&gt;`
-          : f.wireType === 'struct' ? short(f.structType) : f.wireType) : 'derived'}</td>
-        <td class="desc">${wire ? (f.presentIf ? `<b style="color:var(--accent)">if ${f.presentIf}:</b> ` : '') + f.comment
-          : `<code>${f.derivation}</code><br>${f.comment}`}</td>
-      </tr>`).join('');
-    card.innerHTML = `
-      <h2>${node.label}</h2>
-      <div class="meta">consensus struct${node.wireSize ? ` · <b>${node.wireSize} bytes</b> on the wire` : ''}${node.bip ? ` · BIP ${[].concat(node.bip).join(', ')}` : ''}</div>
-      <p class="comment">${node.comment}</p>
-      <table><tr><th>field</th><th>wire type</th><th>description</th></tr>${rows(node.fields, true)}</table>
-      ${node.derived ? `<div class="derived-label">derived (computed, never serialized)</div>
-      <table><tr><th>field</th><th></th><th>derivation</th></tr>${rows(node.derived, false)}</table>` : ''}`;
-    main.appendChild(card);
+  for (const name of MODULES) {
+    const schema = await (await fetch(`schema/${name}.jsonld`)).json();
+    const nodes = schema['@graph'];
+    const module_ = nodes.find((n) => n['@type'] === 'Module');
+    if (name === 'core' && module_?.version)
+      document.getElementById('version').textContent = 'v' + module_.version;
+
+    const heading = document.createElement('h2');
+    heading.style.cssText = 'margin:2.2rem 0 0;font-size:1.1rem;color:var(--muted);font-family:var(--mono)';
+    heading.innerHTML = `module: <a href="schema/${name}.jsonld" style="color:var(--accent)">${name}</a> · layer: ${module_.layer}`;
+    main.appendChild(heading);
+
+    for (const node of nodes.filter((n) => n['@id'] !== module_['@id'])) {
+      const card = document.createElement('section');
+      card.className = 'card';
+      const type = node['@type'];
+
+      if (type === 'ConsensusStruct' || type === 'ContextStruct') {
+        card.innerHTML = `
+          <h2>${node.label}</h2>
+          <div class="meta">${type === 'ConsensusStruct' ? 'consensus struct' : 'contextual struct'}${node.wireSize ? ` · <b>${node.wireSize} bytes</b> on the wire` : ''}${node.bip ? ` · BIP ${[].concat(node.bip).join(', ')}` : ''}</div>
+          <p class="comment">${node.comment}</p>
+          <table><tr><th>field</th><th>${type === 'ConsensusStruct' ? 'wire type' : 'type'}</th><th>description</th></tr>${rows(node.fields, true)}</table>
+          ${node.derived ? `<div class="derived-label">derived (computed, never serialized)</div>
+          <table><tr><th>field</th><th></th><th>derivation</th></tr>${rows(node.derived, false)}</table>` : ''}`;
+      } else if (type === 'RuleSet') {
+        card.innerHTML = `
+          <h2>${node.label}</h2>
+          <div class="meta">ruleset · phase: <b>${node.phase}</b> · ${node.rules.length} ordered rules · error codes match Bitcoin Core</div>
+          <p class="comment">${node.comment}</p>
+          <table><tr><th>#</th><th>rule</th><th>error code</th><th>check</th></tr>
+          ${node.rules.map((r, i) => `
+            <tr><td class="name">${i + 1}</td><td class="name">${r.label}</td>
+                <td class="type">${r.errorCode}</td>
+                <td class="desc"><code>${r.check.replace(/</g, '&lt;')}</code><br>${r.comment}</td></tr>`).join('')}
+          </table>`;
+      } else {
+        const props = Object.entries(node).filter(([k]) => !k.startsWith('@') && !['label', 'comment'].includes(k));
+        card.innerHTML = `
+          <h2>${node.label}</h2>
+          <div class="meta">instance of <b>${short(type)}</b></div>
+          <p class="comment">${node.comment}</p>
+          <table>${props.map(([k, v]) => `<tr><td class="name">${k}</td><td class="desc" style="font-family:var(--mono);overflow-wrap:anywhere">${v}</td></tr>`).join('')}</table>`;
+      }
+      main.appendChild(card);
+    }
   }
 </script>
 </body>
