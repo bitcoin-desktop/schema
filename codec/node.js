@@ -55,7 +55,8 @@ export class EsploraSource {
   constructor(base, codec, fetchFn = globalThis.fetch) {
     this.base = base;
     this.codec = codec;
-    this.fetch = fetchFn;
+    // browsers require fetch to be invoked with the global as `this`
+    this.fetch = fetchFn.bind(globalThis);
   }
   async #text(p) {
     const r = await this.fetch(this.base + p);
