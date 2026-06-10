@@ -14,11 +14,15 @@ export class MemoryStorage {
   constructor() { this.m = new Map(); }
   async get(k) { return this.m.get(k) ?? null; }
   async set(k, v) { this.m.set(k, v); }
+  close() {} // interface symmetry with IdbStorage
 }
 
 // Minimal promise wrapper over IndexedDB (browser persistence).
 export class IdbStorage {
   constructor(dbName = 'bitcoin-schema-node') { this.dbName = dbName; }
+  // Release the cached connection so deleteDatabase is not blocked by us;
+  // the next operation reopens cleanly. Safe to call repeatedly.
+  close() { this._db?.close?.(); this._db = null; }
   async #db() {
     if (this._db) return this._db;
     this._db = await new Promise((resolve, reject) => {
