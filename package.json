@@ -1,6 +1,6 @@
 {
   "name": "@bitcoin-desktop/schema",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "A canonical, machine-readable model of the Bitcoin protocol in JSON-LD: structures, byte serialization, derivations, and (eventually) validation rules. Independent project; not affiliated with Bitcoin Core.",
   "type": "module",
   "main": "codec/codec.js",

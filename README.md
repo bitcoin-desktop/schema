@@ -128,6 +128,13 @@ Each milestone is a working artifact, not just more schema:
    checkpoint to tip, ~1,800 headers validated in under a second). Point the
    [light node app](https://bitcoin-desktop.github.io/schema/apps/node.html) at
    `ws://localhost:8334`. Next: the WebRTC mesh (Nostr signaling).
+9. **NostrSource** ✅ (v0.0.17) — the LightNode drinks from the
+   [NIP-333](https://nip-333.github.io/) live stream: kind-33333 events (12 headers, one
+   replaceable stream per network) become a header source ([codec/nostr.js](codec/nostr.js)) —
+   read-only, event id + BIP-340 verified with our own verifier, never signing. Serves tip
+   following (`headersAfter`) and the divergence cross-check within its 12-header window;
+   the publisher stays untrusted because every header passes the same validation rules as
+   any other source. Golden vector: a real production event captured from a relay.
 
 ## Using the codec
 
