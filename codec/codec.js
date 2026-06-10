@@ -148,6 +148,7 @@ export class Codec {
 
   #readItem(itemType, r) {
     if (itemType === 'varbytes') return bytesToHex(r.take(r.varint()));
+    if (itemType === 'hash256') return reverseHex(r.take(32));
     return this.#readStruct(shortId(itemType), r);
   }
 
@@ -199,6 +200,7 @@ export class Codec {
 
   #writeItem(itemType, v, w) {
     if (itemType === 'varbytes') { const b = hexToBytes(v); w.varint(b.length); return w.bytes(b); }
+    if (itemType === 'hash256') return w.bytes(hexToBytes(v).reverse());
     return this.#writeStruct(shortId(itemType), v, w);
   }
 

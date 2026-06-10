@@ -1,0 +1,64 @@
+{
+  "@context": "../context.jsonld",
+  "@graph": [
+    {
+      "@id": "btc:proof",
+      "@type": "Module",
+      "label": "proof",
+      "version": "0.0.3",
+      "comment": "Compact proofs that let a client verify facts about the chain without holding the chain: merkle inclusion proofs anchor a transaction to a header, and the header chain's proof-of-work does the rest. This is the basis of SPV (Simplified Payment Verification, described in section 8 of the Bitcoin whitepaper).",
+      "layer": "proof"
+    },
+
+    {
+      "@id": "btc:MerkleBlock",
+      "@type": "ConsensusStruct",
+      "module": "btc:proof",
+      "label": "MerkleBlock",
+      "comment": "A partial merkle tree proof (BIP 37): a block header plus the minimal set of hashes and traversal flags needed to prove that specific transactions are committed by the header's merkleRoot. Verifying one requires only the 80-byte header chain — no block data.",
+      "bip": [37],
+      "fields": [
+        {
+          "property": "btc:header",
+          "label": "header",
+          "comment": "The block header whose merkleRoot the proof reconstructs. Its proof-of-work and chain membership are verified exactly as in headers-only sync.",
+          "wireType": "struct",
+          "structType": "btc:BlockHeader"
+        },
+        {
+          "property": "btc:txCount",
+          "label": "txCount",
+          "comment": "Total number of transactions in the block, defining the shape of the full merkle tree.",
+          "wireType": "u32le"
+        },
+        {
+          "property": "btc:hashes",
+          "label": "hashes",
+          "comment": "The pruned-branch and matched-transaction hashes, in depth-first traversal order, prefixed by a CompactSize count.",
+          "wireType": "vec",
+          "itemType": "hash256"
+        },
+        {
+          "property": "btc:flags",
+          "label": "flags",
+          "comment": "Depth-first traversal flag bits, least-significant bit of each byte first, prefixed by a CompactSize byte count. A set bit at an interior node means descend; a set bit at a leaf marks a matched transaction; a clear bit means the subtree is summarized by one hash.",
+          "wireType": "varbytes"
+        }
+      ],
+      "derived": [
+        {
+          "property": "btc:root",
+          "label": "root",
+          "comment": "The merkle root reconstructed by depth-first traversal of the partial tree. The proof is valid only if it equals header.merkleRoot.",
+          "derivation": "extractPartialMerkleTree(txCount, hashes, flags).root"
+        },
+        {
+          "property": "btc:matchedTransactions",
+          "label": "matchedTransactions",
+          "comment": "The txids the proof demonstrates inclusion for, with their positions in the block.",
+          "derivation": "extractPartialMerkleTree(txCount, hashes, flags).matches"
+        }
+      ]
+    }
+  ]
+}
