@@ -179,3 +179,39 @@ export function checkTapTweak(internalKey32, merkleRoot, outputKey32, parity) {
   const qy = mod(Q[1] * zi * zi * zi);
   return qx === bytesToBig(outputKey32) && Number(qy & 1n) === parity;
 }
+
+// ---- BIP 32 public derivation + BIP 86 output keys ----
+
+function compress(point) {
+  const out = new Uint8Array(33);
+  out[0] = (point[1] & 1n) === 0n ? 0x02 : 0x03;
+  out.set(bigToBytes(point[0]), 1);
+  return out;
+}
+
+// CKDpub child key: point(IL) + Kpar. Returns compressed bytes or null on
+// the (negligible-probability) invalid cases BIP 32 says to skip.
+export function ckdPubKey(parentPub33, il32) {
+  const il = bytesToBig(il32);
+  if (il >= N) return null;
+  const K = parsePubkey(parentPub33);
+  if (!K) return null;
+  const child = jAdd(jMul([GX, GY, 1n], il), [K[0], K[1], 1n]);
+  if (!child) return null;
+  const zi = inv(child[2], P);
+  return compress([mod(child[0] * zi * zi), mod(child[1] * zi * zi * zi)]);
+}
+
+// BIP 341/86 output key: x-only internal key tweaked by the (optional)
+// merkle root. Returns the 32-byte x-only output key, or null.
+export function tapOutputKey(internalKey32, merkleRoot = null) {
+  const Pp = liftX(internalKey32);
+  if (!Pp) return null;
+  const t = bytesToBig(taggedHash('TapTweak',
+    internalKey32, ...(merkleRoot ? [merkleRoot] : [])));
+  if (t >= N) return null;
+  const Q = jAdd([Pp[0], Pp[1], 1n], jMul([GX, GY, 1n], t));
+  if (!Q) return null;
+  const zi = inv(Q[2], P);
+  return bigToBytes(mod(Q[0] * zi * zi));
+}

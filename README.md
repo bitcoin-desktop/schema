@@ -1,6 +1,6 @@
 # Bitcoin Schema
 
-**v0.0.10** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.11** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
@@ -12,7 +12,8 @@ and (eventually) declarative validation rules in the spirit of
 [SPV proof verifier](https://bitcoin-desktop.github.io/schema/apps/spv.html) ·
 [pruned block validator](https://bitcoin-desktop.github.io/schema/apps/blocks.html) ·
 [block miner](https://bitcoin-desktop.github.io/schema/apps/mine.html) ·
-[p2p wire decoder](https://bitcoin-desktop.github.io/schema/apps/p2p.html)
+[p2p wire decoder](https://bitcoin-desktop.github.io/schema/apps/p2p.html) ·
+[watch-only wallet](https://bitcoin-desktop.github.io/schema/apps/wallet.html)
 
 > Independent community project; not affiliated with Bitcoin Core.
 
@@ -63,7 +64,7 @@ Strict one-way dependencies (Hornet-style): a module may only reference modules 
 | `script` | **partial** | full Opcode enumeration, ScriptType templates as data with address-encoding rules, SighashType, ScriptLimits — plus a working [interpreter](codec/interpreter.js): per-opcode handlers, legacy + BIP 143 + BIP 341 sighash, pure-BigInt ECDSA and Schnorr, every spend path: p2pk/p2pkh/multisig/p2sh (incl. wrapped segwit)/p2wpkh/p2wsh/**p2tr key & script path** with tapscript (CHECKSIGADD, OP_SUCCESSx). Planned: descriptors |
 | `p2p` | **shipped** | the 24-byte envelope, 13 payload structs, and a 34-command enumeration mapping every command to its struct — `tx`/`block`/`merkleblock` carry the core/proof structs unchanged. The golden vector is a real mainnet handshake our engine performed over TCP, replayed byte-exactly in CI |
 | `mine` | **shipped** | BlockTemplate (getblocktemplate-shaped), coinbase construction (BIP 34 push, witness commitment, extraNonce), nonce grinding — plus testnet/signet/regtest NetworkParams instances and address *decoding* (base58check, bech32/bech32m) |
-| `wallet` | planned | BIP 32 keys, descriptors, PSBT, BIP 21 |
+| `wallet` | **shipped** | watch-only by design: BIP 32 xpub parsing + public derivation (SHA-512/HMAC from generated constants), BIP 86 taproot addresses, BIP 174 PSBT (byte-exact round-trips, finalized-tx extraction **with interpreter signature verification**), BIP 21 URIs. Planned: descriptors |
 
 The [header engine](codec/headers.js) executes the `validate` ruleset directly from the schema:
 rule order, identity, and error codes are data; the engine binds pure check implementations to
@@ -106,6 +107,11 @@ Each milestone is a working artifact, not just more schema:
    byte-exactly). [apps/p2p.html](https://bitcoin-desktop.github.io/schema/apps/p2p.html)
    decodes any raw stream. A live socket loop (relay, mempool) is a host-environment concern —
    browsers cannot open TCP — and remains future work, as do the BIP 152/157/155 payload structs.
+6. **Wallet** ✅ (v0.0.11) — watch-only: derive addresses from any xpub (verified against the
+   official BIP 32 chains and BIP 86 taproot vectors), decode any PSBT (all 24 official BIP 174
+   vectors round-trip byte-exactly), and — the part nothing else does in 0 dependencies — extract
+   a finalized PSBT and *verify its signatures* with the schema's own interpreter:
+   [apps/wallet.html](https://bitcoin-desktop.github.io/schema/apps/wallet.html).
 
 ## Using the codec
 

@@ -95,18 +95,18 @@ export class Codec {
 
   // ---- decode ----
 
-  decode(typeName, bytesOrHex) {
+  decode(typeName, bytesOrHex, opts = {}) {
     const bytes = typeof bytesOrHex === 'string' ? hexToBytes(bytesOrHex) : bytesOrHex;
     const r = new Reader(bytes);
-    const obj = this.#readStruct(typeName, r);
+    const obj = this.#readStruct(typeName, r, opts);
     if (r.pos !== bytes.length) throw new Error(`${bytes.length - r.pos} trailing bytes after ${typeName}`);
     return obj;
   }
 
-  #readStruct(typeName, r) {
+  #readStruct(typeName, r, opts = {}) {
     const def = this.def(typeName);
     const obj = {};
-    let segwit = null;
+    let segwit = opts.legacy ? false : null;
     for (const f of def.fields) {
       if (f.presentIf === 'segwit') {
         if (segwit === null) segwit = r.peek() === 0x00;
