@@ -1,13 +1,14 @@
 # Bitcoin Schema
 
-**v0.0.12** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
+**v0.0.13** · A canonical, machine-readable model of the Bitcoin protocol, written in JSON-LD.
 
 One schema; many projections: byte-exact binary serialization, explorer views, RDF/linked data,
 and (eventually) declarative validation rules in the spirit of
 [Hornet Node](https://hornetnode.org/paper.html)'s formal consensus specification.
 
 **Live:** https://bitcoin-desktop.github.io/schema/ ·
-**Apps:** [transaction decoder](https://bitcoin-desktop.github.io/schema/apps/tx.html) ·
+**Apps:** [light node](https://bitcoin-desktop.github.io/schema/apps/node.html) ·
+[transaction decoder](https://bitcoin-desktop.github.io/schema/apps/tx.html) ·
 [header chain verifier](https://bitcoin-desktop.github.io/schema/apps/headers.html) ·
 [SPV proof verifier](https://bitcoin-desktop.github.io/schema/apps/spv.html) ·
 [pruned block validator](https://bitcoin-desktop.github.io/schema/apps/blocks.html) ·
@@ -59,7 +60,7 @@ Strict one-way dependencies (Hornet-style): a module may only reference modules 
 | module | status | contents |
 |---|---|---|
 | `core` | **shipped** | Block, BlockHeader, Transaction, TransactionInput, TransactionOutput, OutPoint, Witness — full wire annotations + derivations |
-| `chain` | **partial** | NetworkParams + mainnet instance (consensus constants, address encodings, buried-deployment heights), Coin (UTXO entry). Planned: mempool, BIP 9 deployments |
+| `chain` | **shipped** | NetworkParams for all five networks (mainnet, testnet, **testnet4** with BIP 94 timewarp/min-difficulty semantics, signet, regtest), Coin (UTXO entry), and Checkpoint sync anchors. Planned: mempool, BIP 9 deployments |
 | `validate` | **partial** | five phase rulesets, **31 rules** as data, at full parity with Hornet Node's declarative rule specification (header version requirements, sigop limits, tx finality, coinbase maturity included). Bitcoin Core error codes, activation gating. Planned: script execution |
 | `proof` | **shipped** | MerkleBlock / partial merkle tree (BIP 37); compact filters (BIP 158: SipHash-2-4 + Golomb-Rice sets, byte-identical to the official vectors) with the BIP 157 filter-header chain and p2p payload structs |
 | `script` | **partial** | full Opcode enumeration, ScriptType templates as data with address-encoding rules, SighashType, ScriptLimits — plus a working [interpreter](codec/interpreter.js): per-opcode handlers, legacy + BIP 143 + BIP 341 sighash, pure-BigInt ECDSA and Schnorr, every spend path: p2pk/p2pkh/multisig/p2sh (incl. wrapped segwit)/p2wpkh/p2wsh/**p2tr key & script path** with tapscript (CHECKSIGADD, OP_SUCCESSx). Planned: descriptors |
@@ -113,6 +114,14 @@ Each milestone is a working artifact, not just more schema:
    vectors round-trip byte-exactly), and — the part nothing else does in 0 dependencies — extract
    a finalized PSBT and *verify its signatures* with the schema's own interpreter:
    [apps/wallet.html](https://bitcoin-desktop.github.io/schema/apps/wallet.html).
+7. **Light node** ✅ (v0.0.13) — the chassis for browser/desktop/mobile mesh nodes
+   ("the WebTorrent of Bitcoin"): a persistent LightNode that syncs headers forward from a
+   schema-defined checkpoint into IndexedDB, validates every header through the 7-rule header
+   phase (testnet4's BIP 94 retarget and min-difficulty walk-back included, reproduced
+   bit-for-bit from the live chain), cross-checks sources with divergence detection, and
+   verifies transactions against its own chain:
+   [apps/node.html](https://bitcoin-desktop.github.io/schema/apps/node.html).
+   Next: the p2p bridge (real network → WebSocket) and the WebRTC mesh.
 
 ## Using the codec
 

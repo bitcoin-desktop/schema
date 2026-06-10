@@ -5,7 +5,7 @@
       "@id": "btc:chain",
       "@type": "Module",
       "label": "chain",
-      "version": "0.0.9",
+      "version": "0.0.13",
       "comment": "Chain-contextual structures: state that depends on which chain you are following and where its tip is. Nothing in this module is covered by proof-of-work; it parameterizes and indexes the consensus structures defined in core.",
       "layer": "context"
     },
@@ -159,6 +159,24 @@
           "label": "powNoRetargeting",
           "valueType": "bool",
           "comment": "Whether difficulty retargeting is disabled (regtest only)."
+        },
+        {
+          "property": "btc:allowMinDifficultyBlocks",
+          "label": "allowMinDifficultyBlocks",
+          "valueType": "bool",
+          "comment": "Testnet rule: a block whose timestamp exceeds the previous block's by more than 2x targetSpacing may be mined at powLimit difficulty; otherwise difficulty is that of the last non-minimum-difficulty block of the epoch."
+        },
+        {
+          "property": "btc:timewarpFix",
+          "label": "timewarpFix",
+          "valueType": "bool",
+          "comment": "BIP 94 (testnet4): retargets compute from the epoch-first block's bits, and the first block of each epoch may not be timestamped more than maxTimewarp before its predecessor."
+        },
+        {
+          "property": "btc:maxTimewarp",
+          "label": "maxTimewarp",
+          "valueType": "u32",
+          "comment": "BIP 94: maximum seconds an epoch-first block may lag its predecessor: 600."
         }
       ]
     },
@@ -228,7 +246,7 @@
       "@id": "btc:testnet",
       "@type": "btc:NetworkParams",
       "label": "testnet",
-      "comment": "Testnet3: the long-running public test network. Coins are worthless by design.",
+      "comment": "Testnet3: the long-running public test network. Coins are worthless by design. Allows minimum-difficulty blocks after a 20-minute gap.",
       "name": "testnet",
       "magic": "0b110907",
       "genesisHash": "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943",
@@ -251,7 +269,40 @@
       "csvHeight": 770112,
       "segwitHeight": 834624,
       "maxBlockSigopsCost": 80000,
-      "coinbaseMaturity": 100
+      "coinbaseMaturity": 100,
+      "allowMinDifficultyBlocks": true
+    },
+    {
+      "@id": "btc:testnet4",
+      "@type": "btc:NetworkParams",
+      "label": "testnet4",
+      "comment": "Testnet4 (BIP 94, live since 2024): a reset public test network with the timewarp fix and epoch-first retargeting; keeps the 20-minute minimum-difficulty exception.",
+      "name": "testnet4",
+      "magic": "1c163f28",
+      "genesisHash": "00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043",
+      "powLimit": "00000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "targetTimespan": 1209600,
+      "targetSpacing": 600,
+      "difficultyAdjustmentInterval": 2016,
+      "maxFutureBlockTime": 7200,
+      "halvingInterval": 210000,
+      "port": 48333,
+      "p2pkhVersion": 111,
+      "p2shVersion": 196,
+      "bech32Hrp": "tb",
+      "maxMoney": 2100000000000000,
+      "initialSubsidy": 5000000000,
+      "maxBlockWeight": 4000000,
+      "bip34Height": 1,
+      "bip65Height": 1,
+      "bip66Height": 1,
+      "csvHeight": 1,
+      "segwitHeight": 1,
+      "maxBlockSigopsCost": 80000,
+      "coinbaseMaturity": 100,
+      "allowMinDifficultyBlocks": true,
+      "timewarpFix": true,
+      "maxTimewarp": 600
     },
     {
       "@id": "btc:signet",
@@ -311,6 +362,59 @@
       "maxBlockSigopsCost": 80000,
       "coinbaseMaturity": 100,
       "powNoRetargeting": true
+    },
+    {
+      "@id": "btc:Checkpoint",
+      "@type": "ContextStruct",
+      "module": "btc:chain",
+      "label": "Checkpoint",
+      "comment": "An AssumeValid-style sync anchor: a known-good header at a retarget boundary from which a light client syncs forward. Trust-minimized by reproducibility \u2014 anyone with a node can verify the hash \u2014 and chosen at epoch boundaries so all subsequent retarget context is within the synced range.",
+      "fields": [
+        {
+          "property": "btc:checkpointNetwork",
+          "label": "network",
+          "valueType": "NetworkParams",
+          "comment": "Which network the checkpoint anchors."
+        },
+        {
+          "property": "btc:height",
+          "label": "height",
+          "valueType": "u32",
+          "comment": "Block height (a multiple of the retarget interval)."
+        },
+        {
+          "property": "btc:hash",
+          "label": "hash",
+          "valueType": "hash",
+          "comment": "The block hash."
+        },
+        {
+          "property": "btc:rawHeader",
+          "label": "rawHeader",
+          "valueType": "hex",
+          "comment": "The 80-byte header, so the chain can be extended without any fetch."
+        }
+      ]
+    },
+    {
+      "@id": "btc:mainnetCheckpoint",
+      "@type": "btc:Checkpoint",
+      "label": "mainnetCheckpoint",
+      "comment": "Mainnet sync anchor (retarget boundary, 2026-05).",
+      "network": "btc:mainnet",
+      "height": 951552,
+      "rawHeader": "046021200d794080a57a498c0d80e681de3e443488359077dd9501000000000000000000d52087be6c9a811306bd2da144e60e868ec93fb7803748fa7f62a701458987989a6a196a8f0602176f9614b2",
+      "hash": "00000000000000000001b472f1922f86148c8286609fb14be39e12b8bd14bb64"
+    },
+    {
+      "@id": "btc:testnet4Checkpoint",
+      "@type": "btc:Checkpoint",
+      "label": "testnet4Checkpoint",
+      "comment": "Testnet4 sync anchor (retarget boundary, 2026-06).",
+      "network": "btc:testnet4",
+      "height": 137088,
+      "rawHeader": "0000f7201b5ff9ab68e80c066b16fd7164237beeeba524c9811cd13ab94325000000000076fc49b54f167d7ea3162ea421578eafd75bfdef99b818708c908c862c2daba8f6a41b6ab67603197c40888d",
+      "hash": "00000000000000021645cc90db9b1ad27156e130620a074028676fbeca049502"
     }
   ]
 }

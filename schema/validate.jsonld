@@ -5,7 +5,7 @@
       "@id": "btc:validate",
       "@type": "Module",
       "label": "validate",
-      "version": "0.0.8",
+      "version": "0.0.13",
       "comment": "Validation rules as data, in the spirit of Hornet Node's formal consensus specification: ordered rulesets of pure checks, each enforcing a single invariant and naming a typed error. Error codes match Bitcoin Core's reject reasons so results are comparable across implementations.",
       "layer": "rules"
     },
@@ -69,6 +69,15 @@
           ],
           "comment": "Obsolete block versions are rejected once the corresponding deployment is buried: version >= 2 from params.bip34Height, >= 3 from params.bip66Height, >= 4 from params.bip65Height.",
           "check": "header.version >= minVersionAt(height, params)"
+        },
+        {
+          "@id": "btc:rule-header-timewarp",
+          "@type": "ValidationRule",
+          "label": "timewarp",
+          "errorCode": "time-timewarp-attack",
+          "bip": 94,
+          "comment": "On networks with the timewarp fix (testnet4), the first block of a difficulty epoch may not be timestamped more than params.maxTimewarp (600s) before its predecessor \u2014 closing the timewarp difficulty exploit. Skipped on networks without the fix.",
+          "check": "isEpochFirst(height) implies header.time >= prev.time - params.maxTimewarp"
         }
       ]
     },
