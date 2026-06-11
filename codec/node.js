@@ -113,7 +113,7 @@ export class EsploraSource {
 }
 
 export class LightNode {
-  constructor({ codec, headerEngine, spvEngine = null, storage, sources, checkpoint, batchSize = 200 }) {
+  constructor({ codec, headerEngine, spvEngine = null, storage, sources, checkpoint, batchSize = 200, reorgDepth = 100 }) {
     this.codec = codec;
     this.engine = headerEngine;
     this.spv = spvEngine;
@@ -121,11 +121,12 @@ export class LightNode {
     this.sources = sources;
     this.checkpoint = checkpoint; // {height, hash, rawHeader}
     this.batchSize = batchSize;
+    this.reorgDepth = reorgDepth; // max walk-back: deeper disagreement = refuse loudly
     this.cache = new Map(); // height -> decoded header (current epoch + tail)
     this.divergence = null;
   }
 
-  static fromSchemas(codec, chainSchema, validateSchema, network, { storage, sources, batchSize } = {}) {
+  static fromSchemas(codec, chainSchema, validateSchema, network, { storage, sources, batchSize, reorgDepth } = {}) {
     const engine = HeaderEngine.fromSchemas(codec, chainSchema, validateSchema, network);
     const spv = SpvEngine.fromSchemas(codec, validateSchema);
     const checkpoint = chainSchema['@graph'].find(
@@ -134,7 +135,7 @@ export class LightNode {
     return new LightNode({
       codec, headerEngine: engine, spvEngine: spv,
       storage: storage ?? new MemoryStorage(), sources: sources ?? [],
-      checkpoint, batchSize,
+      checkpoint, batchSize, reorgDepth,
     });
   }
 
@@ -238,12 +239,92 @@ export class LightNode {
       const start = this.meta.tipHeight + 1;
       const count = Math.min(this.batchSize, target - this.meta.tipHeight);
       const hexes = await primary.headersRange(start, count);
-      await this.#appendBatch(hexes, start);
+      if (!hexes.length) {
+        throw new Error(`${primary.base}: no headers at ${start} (claimed tip ${target}) — refusing`);
+      }
+      // a batch that does not connect to our tip means the source is on a
+      // different branch — our tip was reorged away (routine on testnet4)
+      if (this.codec.decode('BlockHeader', hexes[0]).prevBlockHash !== this.meta.tipHash) {
+        await this.#reorg(primary, target);
+      } else {
+        await this.#appendBatch(hexes, start);
+      }
       batches++;
       onProgress?.(this.meta.tipHeight, target);
     }
     await this.#crossCheck();
     return this.status();
+  }
+
+  // Recover from an orphaned tip: find the fork point within reorgDepth,
+  // demand the source's branch carry MORE accumulated work than ours above
+  // the fork, validate it fully, and only then rewind and re-append. A
+  // weaker, missing, or invalid branch throws and leaves the node untouched.
+  async #reorg(source, target) {
+    // 1. fork point: highest height where we and the source agree
+    let fork = null;
+    const floor = Math.max(this.meta.startHeight, this.meta.tipHeight - this.reorgDepth);
+    for (let h = this.meta.tipHeight; h >= floor; h--) {
+      const theirs = (await source.headersRange(h, 1))[0];
+      if (theirs && theirs === await this.storage.get(`h:${h}`)) { fork = h; break; }
+    }
+    if (fork === null) {
+      throw new Error(`${source.base}: disagrees beyond reorg depth ${this.reorgDepth} — refusing`);
+    }
+
+    // 2. the bar: our accumulated work above the fork
+    let oldWork = 0n;
+    for (let h = fork + 1; h <= this.meta.tipHeight; h++) {
+      oldWork += this.engine.work(await this.headerAt(h));
+    }
+
+    // 3. fetch the candidate branch until it clears the bar (more-work rule)
+    const candidate = [];
+    let newWork = 0n;
+    let at = fork + 1;
+    while (newWork <= oldWork) {
+      if (at > target) throw new Error(`${source.base}: branch never exceeds our work — refusing reorg`);
+      const hexes = await source.headersRange(at, Math.min(this.batchSize, target - at + 1));
+      if (!hexes.length) throw new Error(`${source.base}: no headers at ${at} during reorg — refusing`);
+      for (const hex of hexes) {
+        candidate.push(hex);
+        newWork += this.engine.work(this.codec.decode('BlockHeader', hex));
+      }
+      at += hexes.length;
+    }
+
+    // 4. validate the whole candidate BEFORE touching our chain
+    const headers = candidate.map((hex) => this.codec.decode('BlockHeader', hex));
+    const prevContext = [];
+    for (let h = Math.max(this.meta.startHeight, fork - 10); h <= fork; h++) {
+      prevContext.push(await this.headerAt(h));
+    }
+    const rows = this.engine.validateChain(headers, {
+      startHeight: fork + 1, prevContext,
+      now: Math.floor(Date.now() / 1000),
+      chainAt: (h) => this.cache.get(h) ?? null,
+    });
+    for (const row of rows) {
+      if (!row.ok) {
+        const bad = row.results.filter((r) => r.ok === false).map((r) => r.error).join(',');
+        throw new Error(`reorg branch header ${row.height} rejected: ${bad} — refusing`);
+      }
+    }
+
+    // 5. rewind to the fork and append the heavier branch through the
+    // normal path (heights above the new tip may keep stale storage rows;
+    // every read is bounded by meta.tipHeight)
+    let work = BigInt('0x' + this.meta.chainWork) - oldWork;
+    for (let h = fork + 1; h <= this.meta.tipHeight; h++) this.cache.delete(h);
+    const forkHeader = await this.headerAt(fork);
+    this.meta = {
+      ...this.meta,
+      tipHeight: fork,
+      tipHash: this.codec.blockHash(forkHeader),
+      chainWork: work.toString(16),
+    };
+    await this.storage.set('meta', this.meta);
+    await this.#appendBatch(candidate, fork + 1);
   }
 
   // Compare our tip against every other source; record divergence rather
