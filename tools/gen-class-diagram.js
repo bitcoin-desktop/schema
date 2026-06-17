@@ -57,7 +57,7 @@ const POS = {
   'btc:Witness':           { x: 950, y: 480 },
   'btc:OutPoint':          { x: 450, y: 700 },
 };
-const W = 230, HEAD = 34, LINE = 24, PAD = 10;
+const W = 240, HEAD = 34, LINE = 24, PAD = 10;
 const MONO = 'ui-monospace, Menlo, Consolas, monospace';
 const SANS = 'system-ui, sans-serif';
 const C = { bg: '#ffffff', panel: '#f6f8fa', border: '#d0d7de', fg: '#1f2328',
@@ -79,8 +79,12 @@ function svg() {
         + `<text x="${tx}" y="${yy}" font-family="${MONO}" font-size="13.5" fill="${C.accent}">: ${esc(a.type)}${a.opt ? '?' : ''}</text>`;
       yy += LINE; return t;
     });
-    if (m.derived.length) rows.push(
-      `<text x="${x + 14}" y="${yy}" font-family="${MONO}" font-size="12.5" font-style="italic" fill="${C.link}">/${m.derived.join(' /')}</text>`);
+    if (m.derived.length) {
+      // shrink only the derived line so a long list never spills past the box
+      const dtext = '/' + m.derived.join(' /');
+      const dsize = Math.min(12.5, (W - 28) / (dtext.length * 0.62)).toFixed(1);
+      rows.push(`<text x="${x + 14}" y="${yy}" font-family="${MONO}" font-size="${dsize}" font-style="italic" fill="${C.link}">${esc(dtext)}</text>`);
+    }
     boxes.push(`<g>
     <rect x="${x}" y="${y}" width="${W}" height="${h}" rx="10" fill="${C.panel}" stroke="${C.border}" stroke-width="1"/>
     <line x1="${x}" y1="${y + HEAD}" x2="${x + W}" y2="${y + HEAD}" stroke="${C.border}"/>
