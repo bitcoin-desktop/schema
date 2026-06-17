@@ -101,6 +101,11 @@ export class BlockEngine {
       'btc:rule-blockctx-coinbase-maturity': ({ spending }) =>
         spending.premature.length > 0 ? false
           : spending.maturityUnknown > 0 ? null : true,
+      // BIP68/112 relative lock-time: definite violations fail; height-based
+      // locks on out-of-window coins and all time-based locks skip honestly
+      'btc:rule-blockctx-sequence-locks': ({ spending }) =>
+        spending.seqlockViolations.length > 0 ? false
+          : spending.seqlockUnknown > 0 ? null : true,
       // real script + signature verification of every resolvable input;
       // pruned-away prevouts and taproot inputs skip honestly
       'btc:rule-blockctx-scripts': ({ spending }) => {
@@ -261,8 +266,10 @@ export class BlockEngine {
   #resolveSpending(block, utxo, external, height) {
     const spentHere = new Set();
     const createdHere = new Map();
-    let fees = 0, valueUnresolved = 0, unverified = 0, maturityUnknown = 0;
-    const missing = [], deficits = [], premature = [], resolvedInputs = [];
+    let fees = 0, valueUnresolved = 0, unverified = 0, maturityUnknown = 0, seqlockUnknown = 0;
+    const missing = [], deficits = [], premature = [], resolvedInputs = [], seqlockViolations = [];
+    // BIP68 nSequence fields
+    const SEQ_DISABLE = 0x80000000, SEQ_TYPE = 0x00400000, SEQ_MASK = 0x0000ffff;
 
     block.transactions.forEach((tx, i) => {
       const txid = this.codec.txid(tx);
@@ -273,10 +280,12 @@ export class BlockEngine {
           if (spentHere.has(key)) {
             missing.push(key); valuesOk = false;
           } else {
+            let coinHeight = null;
             const coin = createdHere.get(key) ?? utxo.get(key);
             if (coin) {
               inSum += coin.output.value;
               resolvedInputs.push({ tx, inIndex, prevout: coin.output });
+              coinHeight = coin.height;
               if (coin.coinbase && height - coin.height < this.params.coinbaseMaturity) {
                 premature.push(key);
               }
@@ -286,10 +295,19 @@ export class BlockEngine {
               if (out) {
                 inSum += out.value; unverified++;
                 resolvedInputs.push({ tx, inIndex, prevout: out });
-                // an out-of-window coinbase coin's creation height is unknown
+                // out-of-window coin: creation height (and coinbase-ness) unknown
                 if (isCoinbase(ext)) maturityUnknown++;
               } else if (ext) { missing.push(key); valuesOk = false; }
               else { valueUnresolved++; valuesOk = false; }
+            }
+            // BIP68 relative lock-time: only for v2 txs with the disable flag clear
+            if (tx.version >= 2 && (inp.sequence & SEQ_DISABLE) === 0) {
+              const value = inp.sequence & SEQ_MASK;
+              if (value > 0) {
+                if (inp.sequence & SEQ_TYPE) seqlockUnknown++;   // time-based: no per-coin MTP in this context
+                else if (coinHeight == null) seqlockUnknown++;   // height-based but coin height unknown
+                else if (height < coinHeight + value) seqlockViolations.push(key);
+              }
             }
           }
           spentHere.add(key);
@@ -306,7 +324,8 @@ export class BlockEngine {
         }
       });
     });
-    return { fees, missing, deficits, premature, valueUnresolved, unverified, maturityUnknown, resolvedInputs };
+    return { fees, missing, deficits, premature, valueUnresolved, unverified, maturityUnknown,
+      seqlockViolations, seqlockUnknown, resolvedInputs };
   }
 
   validateBlockContext(block, { height, utxo = new Map(), external = new Map(), mtp = null }) {

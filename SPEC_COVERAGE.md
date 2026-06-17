@@ -42,7 +42,7 @@ as silent gaps.
 | 5.2 | Script Execution | ✅ | `codec/interpreter.js`, gated by `scripts` rule | full opcode set incl. `OP_CHECKLOCKTIMEVERIFY` / `OP_CHECKSEQUENCEVERIFY`; legacy + BIP143 + BIP341 sighash |
 | 5.3 | Block Validation | ✅ | `coinbase-script-size`/`-first`/`-single`, `merkle-root`, `no-duplicate-txids`, `sigop-limit`, `weight-limit`, `transactions-valid` | `no-duplicate-txids` = BIP30 |
 | 5.4 | BIP Validation Rules | ✅ | `version` (BIP34/66/65 gating), `coinbase-height` (BIP34) | activation heights carried in NetworkParams |
-| 5.5 | Sequence Locks (BIP68/112) | ◐ | `OP_CHECKSEQUENCEVERIFY` in interpreter | the opcode is present; **relative-locktime enforcement at the transaction-context level is not yet a distinct rule** → candidate add |
+| 5.5 | Sequence Locks (BIP68/112) | ✅ | `sequence-locks` rule + `OP_CHECKSEQUENCEVERIFY` opcode | height-based relative locks enforced at tx-context level; time-based and out-of-window locks skip honestly (no per-coin MTP in a light window) |
 | 6.1 | Block Subsidy | ✅ | `codec/mine.js` subsidy + `coinbase-amount` rule | halving schedule |
 | 6.2 | Total Supply | ◐ | derived from subsidy schedule | not asserted as a standalone supply invariant |
 | 6.3 | Supply Limit Validation | ✅ | `output-values` [`bad-txns-vout-toolarge`] via `maxMoney`; `codec/blocks.js` `sumOut <= maxMoney` | |
@@ -72,9 +72,9 @@ as silent gaps.
 
 ## Candidate additions (in scope, prioritised)
 
-1. **BIP68/112 sequence-lock context enforcement** — we run the `OP_CSV` opcode but do not
-   yet enforce relative locktime as a transaction-context rule. This is genuine consensus
-   and fits the validation core. *(§5.5)*
+1. ~~**BIP68/112 sequence-lock context enforcement**~~ — **done** (`sequence-locks` rule,
+   issue #45): height-based relative locks enforced; time-based and out-of-window locks
+   skip honestly. *(§5.5)*
 2. **Signet (BIP325) block-signature validation** — we already carry signet NetworkParams;
    the missing piece is validating the block signature committed in the coinbase. Natural
    extension of multi-network support. *(§11.5)*

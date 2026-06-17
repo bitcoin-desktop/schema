@@ -280,6 +280,15 @@
           "check": "every(block.transactions, isFinal(tx, height, medianTimePast))"
         },
         {
+          "@id": "btc:rule-blockctx-sequence-locks",
+          "@type": "ValidationRule",
+          "label": "sequence-locks",
+          "errorCode": "bad-txns-nonfinal",
+          "bip": [68, 112],
+          "comment": "BIP68 relative lock-time (enforced via BIP112). For a transaction of version >= 2, each input whose nSequence leaves the disable flag (bit 31) clear imposes a relative lock on the coin it spends. Height-based locks (type flag, bit 22, clear) require spendingHeight >= coinHeight + (nSequence & 0xffff). Time-based locks (bit 22 set) require (nSequence & 0xffff) << 9 seconds to have elapsed since the spent coin's median-time-past; that per-coin time context is not available to a light or pruned validator, so time-based locks are skipped honestly rather than guessed. A height-based lock whose coin height is unknown (out-of-window) is likewise skipped. Coinbase transactions and version-1 transactions are exempt.",
+          "check": "every(resolvedInputs of version>=2 txs, spendingHeight >= coinHeight + (sequence & 0xffff)) for height-based locks; time-based and out-of-window locks skip"
+        },
+        {
           "@id": "btc:rule-blockctx-inputs-available",
           "@type": "ValidationRule",
           "label": "inputs-available",
