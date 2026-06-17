@@ -1,0 +1,90 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="858" viewBox="0 0 1200 858">
+  <rect width="1200" height="858" fill="#ffffff"/>
+  <rect width="1200" height="8" fill="#e8830c"/>
+  <path d="M565,591 L565,641 L565,641 L565,700" fill="none" stroke="#9aa3ad" stroke-width="1.4"/>
+    <path d="M565,582 l8,9 l-8,9 l-8,-9 z" fill="#1f2328"/>
+    <text x="577" y="598" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1</text>
+    <text x="573" y="694" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1</text>
+    <text x="565" y="635" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#57606a" text-anchor="middle">prevout</text>
+  <path d="M755,383 L755,427 L565,427 L565,480" fill="none" stroke="#9aa3ad" stroke-width="1.4"/>
+    <path d="M755,374 l8,9 l-8,9 l-8,-9 z" fill="#1f2328"/>
+    <text x="767" y="390" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1</text>
+    <text x="573" y="474" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1..*</text>
+    <text x="565" y="421" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#57606a" text-anchor="middle">inputs</text>
+  <path d="M755,383 L755,427 L815,427 L815,480" fill="none" stroke="#9aa3ad" stroke-width="1.4"/>
+    <path d="M755,374 l8,9 l-8,9 l-8,-9 z" fill="#1f2328"/>
+    <text x="767" y="390" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1</text>
+    <text x="823" y="474" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1..*</text>
+    <text x="815" y="421" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#57606a" text-anchor="middle">outputs</text>
+  <path d="M755,383 L755,427 L1065,427 L1065,480" fill="none" stroke="#9aa3ad" stroke-width="1.4"/>
+    <path d="M755,374 l8,9 l-8,9 l-8,-9 z" fill="#1f2328"/>
+    <text x="767" y="390" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1</text>
+    <text x="1073" y="474" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">0..*</text>
+    <text x="1065" y="421" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#57606a" text-anchor="middle">witness</text>
+  <path d="M605,107 L605,149 L225,149 L225,200" fill="none" stroke="#9aa3ad" stroke-width="1.4"/>
+    <path d="M605,98 l8,9 l-8,9 l-8,-9 z" fill="#1f2328"/>
+    <text x="617" y="114" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1</text>
+    <text x="233" y="194" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1</text>
+    <text x="225" y="143" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#57606a" text-anchor="middle">header</text>
+  <path d="M605,107 L605,149 L755,149 L755,200" fill="none" stroke="#9aa3ad" stroke-width="1.4"/>
+    <path d="M605,98 l8,9 l-8,9 l-8,-9 z" fill="#1f2328"/>
+    <text x="617" y="114" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1</text>
+    <text x="763" y="194" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="11" fill="#57606a">1..*</text>
+    <text x="755" y="143" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12" fill="#57606a" text-anchor="middle">transactions</text>
+  <g>
+    <rect x="450" y="700" width="230" height="102" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+    <line x1="450" y1="734" x2="680" y2="734" stroke="#d0d7de"/>
+    <text x="565" y="723" font-family="system-ui, sans-serif" font-weight="700" font-size="16" fill="#1f2328" text-anchor="middle">OutPoint</text>
+    <text x="464" y="760" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">txid</text><text x="504.5" y="760" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: hash256</text>
+    <text x="464" y="784" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">vout</text><text x="504.5" y="784" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: u32le</text>
+  </g>
+  <g>
+    <rect x="450" y="480" width="230" height="102" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+    <line x1="450" y1="514" x2="680" y2="514" stroke="#d0d7de"/>
+    <text x="565" y="503" font-family="system-ui, sans-serif" font-weight="700" font-size="16" fill="#1f2328" text-anchor="middle">TransactionInput</text>
+    <text x="464" y="540" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">scriptSig</text><text x="545" y="540" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: varbytes</text>
+    <text x="464" y="564" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">sequence</text><text x="536.9" y="564" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: u32le</text>
+  </g>
+  <g>
+    <rect x="700" y="480" width="230" height="102" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+    <line x1="700" y1="514" x2="930" y2="514" stroke="#d0d7de"/>
+    <text x="815" y="503" font-family="system-ui, sans-serif" font-weight="700" font-size="16" fill="#1f2328" text-anchor="middle">TransactionOutput</text>
+    <text x="714" y="540" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">value</text><text x="762.6" y="540" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: i64le</text>
+    <text x="714" y="564" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">scriptPubKey</text><text x="819.3" y="564" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: varbytes</text>
+  </g>
+  <g>
+    <rect x="950" y="480" width="230" height="78" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+    <line x1="950" y1="514" x2="1180" y2="514" stroke="#d0d7de"/>
+    <text x="1065" y="503" font-family="system-ui, sans-serif" font-weight="700" font-size="16" fill="#1f2328" text-anchor="middle">Witness</text>
+    <text x="964" y="540" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">stack</text><text x="1012.6" y="540" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: varbytes[]</text>
+  </g>
+  <g>
+    <rect x="640" y="200" width="230" height="174" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+    <line x1="640" y1="234" x2="870" y2="234" stroke="#d0d7de"/>
+    <text x="755" y="223" font-family="system-ui, sans-serif" font-weight="700" font-size="16" fill="#1f2328" text-anchor="middle">Transaction</text>
+    <text x="654" y="260" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">version</text><text x="718.8" y="260" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: i32le</text>
+    <text x="654" y="284" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">marker</text><text x="710.7" y="284" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: u8?</text>
+    <text x="654" y="308" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">flag</text><text x="694.5" y="308" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: u8?</text>
+    <text x="654" y="332" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">lockTime</text><text x="726.9" y="332" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: u32le</text>
+    <text x="654" y="356" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12.5" font-style="italic" fill="#0969da">/txid /wtxid /size /weight /vsize</text>
+  </g>
+  <g>
+    <rect x="110" y="200" width="230" height="222" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+    <line x1="110" y1="234" x2="340" y2="234" stroke="#d0d7de"/>
+    <text x="225" y="223" font-family="system-ui, sans-serif" font-weight="700" font-size="16" fill="#1f2328" text-anchor="middle">BlockHeader</text>
+    <text x="124" y="260" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">version</text><text x="188.8" y="260" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: i32le</text>
+    <text x="124" y="284" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">prevBlockHash</text><text x="237.39999999999998" y="284" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: hash256</text>
+    <text x="124" y="308" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">merkleRoot</text><text x="213.1" y="308" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: hash256</text>
+    <text x="124" y="332" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">time</text><text x="164.5" y="332" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: u32le</text>
+    <text x="124" y="356" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">bits</text><text x="164.5" y="356" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: u32le</text>
+    <text x="124" y="380" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#1f2328">nonce</text><text x="172.6" y="380" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.5" fill="#e8830c">: u32le</text>
+    <text x="124" y="404" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12.5" font-style="italic" fill="#0969da">/hash /target /work</text>
+  </g>
+  <g>
+    <rect x="490" y="20" width="230" height="78" rx="10" fill="#f6f8fa" stroke="#d0d7de" stroke-width="1"/>
+    <line x1="490" y1="54" x2="720" y2="54" stroke="#d0d7de"/>
+    <text x="605" y="43" font-family="system-ui, sans-serif" font-weight="700" font-size="16" fill="#1f2328" text-anchor="middle">Block</text>
+    <text x="504" y="80" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12.5" font-style="italic" fill="#0969da">/hash /txCount /merkleRoot /size /weight</text>
+  </g>
+  <text x="1184" y="842" text-anchor="end" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="12.5" fill="#57606a">generated from schema/core.jsonld  ·  ◆ composition  ·  /name = derived (computed, not stored)</text>
+</svg>

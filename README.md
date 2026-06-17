@@ -42,6 +42,68 @@ first segwit transaction, and verifies every derivation (txid, wtxid, block hash
 proof-of-work, size/weight/vsize) against known mainnet values. If the schema can't reproduce
 consensus bytes, it's documentation; because it can, it's canonical.
 
+## Data model
+
+The core consensus structures, as a UML class diagram — **generated from
+[`schema/core.jsonld`](schema/core.jsonld)** by [`tools/gen-class-diagram.js`](tools/gen-class-diagram.js),
+so it can never drift from the schema. Filled diamonds are composition; `+name()` methods are
+**derived** fields (computed from consensus bytes, never serialized).
+
+```mermaid
+classDiagram
+  direction TB
+  class OutPoint {
+    +hash256 txid
+    +u32le vout
+  }
+  class TransactionInput {
+    +varbytes scriptSig
+    +u32le sequence
+  }
+  class TransactionOutput {
+    +i64le value
+    +varbytes scriptPubKey
+  }
+  class Witness {
+    +varbytes[] stack
+  }
+  class Transaction {
+    +i32le version
+    +u8? marker
+    +u8? flag
+    +u32le lockTime
+    +txid() derived
+    +wtxid() derived
+    +size() derived
+    +weight() derived
+    +vsize() derived
+  }
+  class BlockHeader {
+    +i32le version
+    +hash256 prevBlockHash
+    +hash256 merkleRoot
+    +u32le time
+    +u32le bits
+    +u32le nonce
+    +hash() derived
+    +target() derived
+    +work() derived
+  }
+  class Block {
+    +hash() derived
+    +txCount() derived
+    +merkleRoot() derived
+    +size() derived
+    +weight() derived
+  }
+  TransactionInput "1" *-- "1" OutPoint : prevout
+  Transaction "1" *-- "1..*" TransactionInput : inputs
+  Transaction "1" *-- "1..*" TransactionOutput : outputs
+  Transaction "1" *-- "0..*" Witness : witness
+  Block "1" *-- "1" BlockHeader : header
+  Block "1" *-- "1..*" Transaction : transactions
+```
+
 ## Everything is JSON-LD
 
 - The **schema itself** ([schema/core.jsonld](schema/core.jsonld)) is a JSON-LD graph —
