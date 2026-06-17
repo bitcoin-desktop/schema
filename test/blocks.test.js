@@ -30,7 +30,7 @@ const medianOf = (times) => {
 test('schema wiring: three rulesets load with bound checks', () => {
   assert.equal(engine.ruleSets.transaction.rules.length, 7);
   assert.equal(engine.ruleSets.block.rules.length, 7);
-  assert.equal(engine.ruleSets.blockContext.rules.length, 8);
+  assert.equal(engine.ruleSets.blockContext.rules.length, 9);
   for (const [set, checks] of [
     [engine.ruleSets.transaction, engine.txChecks],
     [engine.ruleSets.block, engine.blockChecks],
@@ -127,6 +127,62 @@ test('premature spend of a window coinbase fails maturity', () => {
   // same spend 100 blocks later is mature
   const late = engine.validateBlockContext(block, { height: 100104, utxo, external: new Map(), mtp: 1 });
   assert.equal(late.results.find((r) => r.label === 'coinbase-maturity').ok, true);
+});
+
+// BIP68/112 relative lock-time (issue #45). A v2 input spending a window coin
+// with a height-based relative lock of N is invalid until N blocks have passed.
+function seqlockCase({ version, sequence, coinHeight, spendHeight }) {
+  const utxo = new Map([['bb'.repeat(32) + ':0', {
+    output: { value: 50_0000_0000, scriptPubKey: '51' },
+    height: coinHeight, coinbase: false,
+  }]]);
+  const block = {
+    header: blocks[0].header,
+    transactions: [structuredClone(blocks[0].transactions[0]), {
+      version, lockTime: 0,
+      inputs: [{ prevout: { txid: 'bb'.repeat(32), vout: 0 }, scriptSig: '', sequence }],
+      outputs: [{ value: 49_0000_0000, scriptPubKey: '51' }],
+    }],
+  };
+  return engine.validateBlockContext(block, { height: spendHeight, utxo, external: new Map(), mtp: 1 })
+    .results.find((r) => r.label === 'sequence-locks');
+}
+
+test('BIP68 height lock: immature relative lock fails, mature passes', () => {
+  // relative lock of 5; coin at 100000
+  const immature = seqlockCase({ version: 2, sequence: 5, coinHeight: 100000, spendHeight: 100004 });
+  assert.equal(immature.ok, false);
+  assert.equal(immature.error, 'bad-txns-nonfinal');
+  const mature = seqlockCase({ version: 2, sequence: 5, coinHeight: 100000, spendHeight: 100005 });
+  assert.equal(mature.ok, true, 'spendHeight == coinHeight + 5 satisfies the lock');
+});
+
+test('BIP68 is exempt for v1 txs and for the disable flag', () => {
+  // identical immature case but version 1 -> no relative lock
+  assert.equal(seqlockCase({ version: 1, sequence: 5, coinHeight: 100000, spendHeight: 100001 }).ok, true);
+  // v2 but disable flag (bit 31) set -> exempt; 0xffffffff is the canonical final sequence
+  assert.equal(seqlockCase({ version: 2, sequence: 0xffffffff, coinHeight: 100000, spendHeight: 100001 }).ok, true);
+  assert.equal(seqlockCase({ version: 2, sequence: 0x80000005, coinHeight: 100000, spendHeight: 100001 }).ok, true);
+});
+
+test('BIP68 time-based and out-of-window locks skip honestly', () => {
+  // type flag (bit 22) set -> time-based; no per-coin MTP in this context -> skip (null)
+  assert.equal(seqlockCase({ version: 2, sequence: 0x00400005, coinHeight: 100000, spendHeight: 100001 }).ok, null);
+  // height-based lock on an out-of-window coin (external, height unknown) -> skip
+  const block = {
+    header: blocks[0].header,
+    transactions: [structuredClone(blocks[0].transactions[0]), {
+      version: 2, lockTime: 0,
+      inputs: [{ prevout: { txid: 'cc'.repeat(32), vout: 0 }, scriptSig: '', sequence: 5 }],
+      outputs: [{ value: 1, scriptPubKey: '51' }],
+    }],
+  };
+  const ext = new Map([['cc'.repeat(32), { version: 1, lockTime: 0,
+    inputs: [{ prevout: { txid: 'dd'.repeat(32), vout: 0 }, scriptSig: '', sequence: 0xffffffff }],
+    outputs: [{ value: 2, scriptPubKey: '51' }] }]]);
+  const r = engine.validateBlockContext(block, { height: 100001, utxo: new Map(), external: ext, mtp: 1 })
+    .results.find((x) => x.label === 'sequence-locks');
+  assert.equal(r.ok, null, 'unknown coin height -> honest skip, never a false reject');
 });
 
 test('block 100000 facts: fees and coinbase amount', () => {
