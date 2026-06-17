@@ -76,6 +76,15 @@
     </nav>
   </header>
 
+  <section style="margin:1.6rem 0">
+    <h2 style="font-size:1.1rem;margin:0 0 .2rem">Data model</h2>
+    <p style="color:var(--muted);margin:0 0 .8rem;font-size:.92rem">The core consensus structures as a UML class diagram —
+      <a href="https://github.com/bitcoin-desktop/schema/blob/gh-pages/tools/gen-class-diagram.js">generated</a>
+      from the schema, so it never drifts. Filled diamonds are composition; <code>/name</code> fields are derived (computed, not stored).</p>
+    <a href="class-diagram.svg"><img src="class-diagram.svg" alt="UML class diagram of the core Bitcoin consensus structures: Block composed of BlockHeader and Transactions; Transaction composed of inputs, outputs, and witnesses; inputs reference OutPoints."
+      style="width:100%;height:auto;border:1px solid var(--border);border-radius:10px;background:#fff"></a>
+  </section>
+
   <main id="classes"><p style="color:var(--muted)">Loading schema…</p></main>
 
   <footer>
