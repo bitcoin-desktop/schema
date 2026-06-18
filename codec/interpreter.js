@@ -274,7 +274,7 @@ export class ScriptInterpreter {
       OP_ROLL: (s) => { const n = num(s); if (n < 0 || n >= s.length) fail('roll range'); s.push(s.splice(s.length - 1 - n, 1)[0]); },
       OP_ROT: (s) => { if (s.length < 3) fail('stack underflow'); s.push(s.splice(s.length - 3, 1)[0]); },
       OP_SWAP: (s) => { if (s.length < 2) fail('stack underflow'); s.push(s.splice(s.length - 2, 1)[0]); },
-      OP_TUCK: (s) => { const t = peek(s); s.splice(s.length - 2, 0, t); },
+      OP_TUCK: (s) => { if (s.length < 2) fail('stack underflow'); s.splice(s.length - 2, 0, peek(s)); },
       OP_SIZE: (s) => pushNum(s, peek(s).length),
 
       OP_EQUAL: (s) => s.push(boolBytes(eq(pop(s), pop(s)))),
