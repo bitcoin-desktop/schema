@@ -39,7 +39,7 @@ as silent gaps.
 |---|---|---|---|---|
 | 4 | Consensus Constants | ✅ | `chain.jsonld` NetworkParams | `maxMoney`, `maxBlockSigopsCost`, subsidy, difficulty interval, all per-network |
 | 5.1 | Transaction Validation | ✅ | `inputs-nonempty`, `outputs-nonempty`, `size-limit`, `output-values`, `inputs-unique`, `prevouts` | `inputs-unique` is the CVE-2018-17144 duplicate-prevout check |
-| 5.2 | Script Execution | ✅ | `codec/interpreter.js`, gated by `scripts` rule | full opcode set incl. `OP_CHECKLOCKTIMEVERIFY` / `OP_CHECKSEQUENCEVERIFY`; legacy + BIP143 + BIP341 sighash; **differentially tested against Core's `script_tests.json`** (flag-independent subset, 750 cases) |
+| 5.2 | Script Execution | ✅ | `codec/interpreter.js`, gated by `scripts` rule | full opcode set incl. `OP_CHECKLOCKTIMEVERIFY` / `OP_CHECKSEQUENCEVERIFY`; legacy + BIP143 + BIP341 sighash; **differentially tested against Core's `script_tests.json`** (881 cases, incl. the script-gating flags) |
 | 5.3 | Block Validation | ✅ | `coinbase-script-size`/`-first`/`-single`, `merkle-root`, `no-duplicate-txids`, `sigop-limit`, `weight-limit`, `transactions-valid` | `no-duplicate-txids` = BIP30 |
 | 5.4 | BIP Validation Rules | ✅ | `version` (BIP34/66/65 gating), `coinbase-height` (BIP34) | activation heights carried in NetworkParams |
 | 5.5 | Sequence Locks (BIP68/112) | ✅ | `sequence-locks` rule + `OP_CHECKSEQUENCEVERIFY` opcode | height-based relative locks enforced at tx-context level; time-based and out-of-window locks skip honestly (no per-coin MTP in a light window) |

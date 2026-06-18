@@ -17,8 +17,15 @@ class ScriptError extends Error {}
 const fail = (msg) => { throw new ScriptError(msg); };
 
 // CScriptNum: little-endian, sign bit in the high bit of the last byte.
-export function numDecode(bytes, maxLen = 4) {
+export function numDecode(bytes, maxLen = 4, requireMinimal = false) {
   if (bytes.length > maxLen) fail('scriptnum overflow');
+  // BIP 62 minimal scriptnum (SCRIPT_VERIFY_MINIMALDATA): no trailing zero
+  // byte unless it sets the sign bit of the previous byte.
+  if (requireMinimal && bytes.length > 0
+      && (bytes[bytes.length - 1] & 0x7f) === 0
+      && (bytes.length <= 1 || (bytes[bytes.length - 2] & 0x80) === 0)) {
+    fail('non-minimal scriptnum');
+  }
   if (bytes.length === 0) return 0;
   let n = 0;
   for (let i = 0; i < bytes.length; i++) n += bytes[i] * 2 ** (8 * i);
@@ -50,6 +57,23 @@ const DEFAULT_LIMITS = {
   maxScriptSize: 10000, maxScriptElementSize: 520,
   maxOpsPerScript: 201, maxStackSize: 1000, maxMultisigKeys: 20,
 };
+
+// BIP 62 minimal-push (SCRIPT_VERIFY_MINIMALDATA): a data push must use the
+// shortest possible encoding. `code` is the push opcode actually used.
+function minimalPushOk(code, dataHex) {
+  const len = dataHex.length / 2;
+  if (len === 0) return code === 0x00;                 // must be OP_0
+  if (len === 1) {
+    const b = parseInt(dataHex.slice(0, 2), 16);
+    if (b >= 1 && b <= 16) return false;               // must be OP_1..OP_16
+    if (b === 0x81) return false;                       // must be OP_1NEGATE
+    return code === 0x01;                               // else a direct 1-byte push
+  }
+  if (len <= 75) return code === len;                   // direct push
+  if (len <= 255) return code === 0x4c;                 // OP_PUSHDATA1
+  if (len <= 65535) return code === 0x4d;               // OP_PUSHDATA2
+  return true;
+}
 
 export class ScriptInterpreter {
   constructor(codec, scriptEngine, limits = DEFAULT_LIMITS) {
@@ -212,7 +236,7 @@ export class ScriptInterpreter {
     const L = this.limits;
     const pop = (s) => { if (!s.length) fail('stack underflow'); return s.pop(); };
     const peek = (s, n = 1) => { if (s.length < n) fail('stack underflow'); return s[s.length - n]; };
-    const num = (s) => numDecode(pop(s));
+    const num = (s) => numDecode(pop(s), 4, this.requireMinimalNum);
     const pushNum = (s, n) => s.push(numEncode(n));
     const unary = (f) => (s) => pushNum(s, f(num(s)));
     const binary = (f) => (s) => { const b = num(s), a = num(s); pushNum(s, f(a, b)); };
@@ -227,8 +251,10 @@ export class ScriptInterpreter {
         let f = false;
         if (executing) {
           const v = pop(s);
-          if (ctx.sigVersion === 'tapscript' && !(v.length === 0 || (v.length === 1 && v[0] === 1))) {
-            fail('minimal IF'); // BIP 342: condition must be exactly empty or 0x01
+          if ((ctx.sigVersion === 'tapscript'
+               || (ctx.sigVersion === 'witnessV0' && ctx.flags?.has('MINIMALIF')))
+              && !(v.length === 0 || (v.length === 1 && v[0] === 1))) {
+            fail('minimal IF'); // BIP 342 (tapscript) / SCRIPT_VERIFY_MINIMALIF (witness v0)
           }
           f = truthy(v);
         }
@@ -238,7 +264,9 @@ export class ScriptInterpreter {
         let f = false;
         if (executing) {
           const v = pop(s);
-          if (ctx.sigVersion === 'tapscript' && !(v.length === 0 || (v.length === 1 && v[0] === 1))) {
+          if ((ctx.sigVersion === 'tapscript'
+               || (ctx.sigVersion === 'witnessV0' && ctx.flags?.has('MINIMALIF')))
+              && !(v.length === 0 || (v.length === 1 && v[0] === 1))) {
             fail('minimal IF');
           }
           f = !truthy(v);
@@ -344,7 +372,11 @@ export class ScriptInterpreter {
       },
     };
     for (let i = 1; i <= 16; i++) h[`OP_${i}`] = ((v) => (s) => pushNum(s, v))(i);
-    for (let i = 1; i <= 10; i++) h[`OP_NOP${i}`] = () => {};
+    // OP_NOP1, OP_NOP4..OP_NOP10 are upgradable no-ops; rejected under
+    // SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS. (NOP2/NOP3 are CLTV/CSV.)
+    for (let i = 1; i <= 10; i++) h[`OP_NOP${i}`] = (s, ctx) => {
+      if (ctx.flags?.has('DISCOURAGE_UPGRADABLE_NOPS')) fail('upgradable NOP');
+    };
     return h;
   }
 
@@ -377,6 +409,8 @@ export class ScriptInterpreter {
       if (scriptHex.length / 2 > this.limits.maxScriptSize) fail('script too large');
       ctx.alt = ctx.alt ?? [];
       ctx.scriptCode = ctx.scriptCode ?? scriptHex;
+      this.requireMinimalNum = !!ctx.flags?.has('MINIMALDATA'); // for the shared num() helper
+
       const ops = this.scriptEngine.parse(scriptHex);
       if (ctx.sigVersion === 'tapscript') {
         // BIP 342: OP_SUCCESSx is decided at parse time, before execution
@@ -392,7 +426,10 @@ export class ScriptInterpreter {
         const executing = exec.every(Boolean);
         if (op.data != null) {
           if (op.data.length / 2 > this.limits.maxScriptElementSize) fail('push too large');
-          if (executing) stack.push(hexToBytes(op.data));
+          if (executing) {
+            if (ctx.flags?.has('MINIMALDATA') && !minimalPushOk(op.code, op.data)) fail('non-minimal data push');
+            stack.push(hexToBytes(op.data));
+          }
           continue;
         }
         if (op.code > 0x60 && ++opCount > this.limits.maxOpsPerScript) fail('op count');

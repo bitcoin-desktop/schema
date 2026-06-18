@@ -5,15 +5,15 @@
 // script-asm mini-language, run scriptSig then scriptPubKey through our
 // interpreter, and assert OK/fail agrees.
 //
-// Scope: our interpreter applies a fixed modern-consensus behaviour and has
-// no per-flag toggles, so we assert the FLAG-INDEPENDENT, signature-free
-// subset — opcode semantics, pushes, arithmetic, stack/conditional ops,
-// disabled/bad opcodes, size limits. Cases needing the things we don't yet
-// model are skipped HONESTLY and counted (never silently): witness/segwit,
-// P2SH redeem execution, signature checking (needs Core's dummy tx), the
-// relative/absolute timelock opcodes, and script-gating flags (MINIMALDATA,
-// CLEANSTACK, MINIMALIF, SIGPUSHONLY, DISCOURAGE_*). Adding a flag system to
-// the interpreter would unlock the rest — tracked as a follow-up.
+// Scope: the interpreter now honours the script-gating verification flags
+// (MINIMALDATA, MINIMALIF, DISCOURAGE_UPGRADABLE_NOPS via ctx.flags, plus
+// SIGPUSHONLY and CLEANSTACK applied at this verify-flow level), so we run
+// every case EXCEPT those that need machinery we don't model here:
+// signature checking (CHECKSIG family — needs Core's dummy crediting tx and
+// the sig-encoding flags), the timelock opcodes (CLTV/CSV — need a tx),
+// witness/segwit programs, and P2SH redeem execution. Those are skipped
+// HONESTLY and counted (never silently). The signature path is the natural
+// next phase.
 //
 // This is what caught the OP_TUCK stack-underflow bug.
 
@@ -80,20 +80,18 @@ const castToBool = (b) => {
   return false;
 };
 
-// opcodes/flags whose behaviour is flag-gated or needs context we don't model here
+// opcodes needing a tx context / signature checking we don't model in this path
 const NEEDS_CONTEXT = /CHECKSIG|CHECKMULTISIG|CHECKSIGADD|CHECKLOCKTIMEVERIFY|CHECKSEQUENCEVERIFY/;
-const GATING_FLAGS = /MINIMALDATA|CLEANSTACK|MINIMALIF|SIGPUSHONLY|DISCOURAGE/;
 
-test('Bitcoin Core script_tests.json: every flag-independent case matches our interpreter', () => {
+test('Bitcoin Core script_tests.json: every non-signature case matches our interpreter', () => {
   let ran = 0, matched = 0;
-  const skip = { witness: 0, sigOrTimelock: 0, gatingFlag: 0, realP2SH: 0, realWitness: 0, unparseable: 0 };
+  const skip = { witness: 0, sigOrTimelock: 0, realP2SH: 0, realWitness: 0, unparseable: 0 };
   const mismatches = [];
 
   for (const t of cases) {
     if (t.length < 4) continue;                       // comment-only line
     if (Array.isArray(t[0])) { skip.witness++; continue; } // [witness, amount] segwit case
     const [sig, spk, flags, expected] = t;
-    if (GATING_FLAGS.test(flags)) { skip.gatingFlag++; continue; }
     if (NEEDS_CONTEXT.test(sig) || NEEDS_CONTEXT.test(spk)) { skip.sigOrTimelock++; continue; }
     let sigHex, spkHex;
     try { sigHex = parseScript(sig); spkHex = parseScript(spk); } catch { skip.unparseable++; continue; }
@@ -102,12 +100,19 @@ test('Bitcoin Core script_tests.json: every flag-independent case matches our in
     if (/P2SH/.test(flags) && type === 'p2sh') { skip.realP2SH++; continue; }
     if (/WITNESS/.test(flags) && /witness|segwit|p2w/i.test(type)) { skip.realWitness++; continue; }
 
-    const stack = [];
-    let r, ours;
+    const fset = new Set(flags.split(/[,\s]+/).filter(Boolean));
+    let ours;
     try {
-      r = interp.execute(sigHex, stack, { sigVersion: 'legacy' });
-      if (r.ok) r = interp.execute(spkHex, stack, { sigVersion: 'legacy' });
-      ours = r.ok && stack.length > 0 && castToBool(stack[stack.length - 1]);
+      // SIGPUSHONLY: scriptSig must be push-only (every opcode <= OP_16)
+      if (fset.has('SIGPUSHONLY') && !scriptEngine.parse(sigHex).every((o) => o.code <= 0x60)) {
+        ours = false;
+      } else {
+        const stack = [];
+        let r = interp.execute(sigHex, stack, { sigVersion: 'legacy', flags: fset });
+        if (r.ok) r = interp.execute(spkHex, stack, { sigVersion: 'legacy', flags: fset });
+        ours = r.ok && stack.length > 0 && castToBool(stack[stack.length - 1]);
+        if (ours && fset.has('CLEANSTACK') && stack.length !== 1) ours = false;
+      }
     } catch { skip.sigOrTimelock++; continue; } // opcode that needs tx context
 
     ran++;
@@ -116,6 +121,21 @@ test('Bitcoin Core script_tests.json: every flag-independent case matches our in
   }
 
   console.log(`  script_tests.json: ran ${ran}/${cases.length}, matched ${matched}; skipped ${JSON.stringify(skip)}`);
-  assert.ok(ran >= 700, `expected to cover >=700 cases, ran ${ran} (corpus or parser changed?)`);
+  assert.ok(ran >= 850, `expected to cover >=850 cases, ran ${ran} (corpus or parser changed?)`);
   assert.deepEqual(mismatches, [], `\n${mismatches.slice(0, 20).join('\n')}`);
+});
+
+// Focused, legible assertions for the script-gating flags (the corpus above
+// exercises them comprehensively but opaquely; these document the contract).
+test('verification flags gate strictness via ctx.flags', () => {
+  const run = (hex, ...flags) => interp.execute(hex, [], { sigVersion: 'legacy', flags: new Set(flags) });
+  // MINIMALDATA — non-minimal PUSH: a 1-byte push of 0x01 must use OP_1
+  assert.equal(run('0101').ok, true);
+  assert.equal(run('0101', 'MINIMALDATA').ok, false);
+  // MINIMALDATA — non-minimal SCRIPTNUM: 0x0000 read by OP_NOT
+  assert.equal(run('02000091').ok, true);
+  assert.equal(run('02000091', 'MINIMALDATA').ok, false);
+  // DISCOURAGE_UPGRADABLE_NOPS — OP_NOP1 (0xb0)
+  assert.equal(run('b0').ok, true);
+  assert.equal(run('b0', 'DISCOURAGE_UPGRADABLE_NOPS').ok, false);
 });
