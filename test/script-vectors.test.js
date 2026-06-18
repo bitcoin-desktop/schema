@@ -5,18 +5,21 @@
 // script-asm mini-language, run scriptSig then scriptPubKey through our
 // interpreter, and assert OK/fail agrees.
 //
-// Scope: the interpreter honours the script-gating flags (MINIMALDATA,
-// MINIMALIF, DISCOURAGE_UPGRADABLE_NOPS, SIGPUSHONLY, CLEANSTACK) AND the
-// full signature path — CHECKSIG / CHECKMULTISIG with the sig-encoding flags
-// (DERSIG, STRICTENC, LOW_S, NULLDUMMY, NULLFAIL). Signature cases are run
-// against Core's exact dummy crediting/spending transaction, so the vectors'
-// real signatures verify against the same sighash. We run every case EXCEPT
-// those needing the P2SH-redeem / witness-program / timelock execution paths,
-// which are skipped HONESTLY and counted (never silently).
+// Every case is run through the real verifyInput path — bare scripts, the
+// script-gating flags (MINIMALDATA, MINIMALIF, DISCOURAGE_UPGRADABLE_NOPS,
+// SIGPUSHONLY, CLEANSTACK), the full signature path (CHECKSIG/CHECKMULTISIG
+// with DERSIG, STRICTENC, LOW_S, NULLDUMMY, NULLFAIL), P2SH redeem execution,
+// and witness-program (p2wpkh/p2wsh) execution — all against Core's exact
+// dummy crediting/spending transaction so the vectors' real signatures verify
+// against the same sighash. P2SH and segwit activation are gated on their
+// flags. Skipped HONESTLY (and counted, never silently): the timelock opcodes
+// (need specific tx fields), and BIP 141 witness *structure/malleability*
+// validation (witness-unexpected/malleated/wrong-length, discourage-upgradable
+// witness program) — a documented boundary.
 //
-// This is what caught the OP_TUCK stack-underflow bug, and (during the
-// signature pass) a missing hybrid-pubkey case and the exact CHECKMULTISIG
-// evaluation order.
+// This caught four real consensus bugs: OP_TUCK stack underflow, MINIMALIF
+// over-applied to legacy script, rejected hybrid pubkeys, and the exact
+// CHECKMULTISIG evaluation order / key op-count.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -75,64 +78,64 @@ function parseScript(s) {
   }
   return hx(Uint8Array.from(out));
 }
-// Core's CastToBool: any non-zero byte is true, except a lone trailing 0x80 (negative zero).
-const castToBool = (b) => {
-  for (let i = 0; i < b.length; i++) if (b[i] !== 0) return !(i === b.length - 1 && b[i] === 0x80);
-  return false;
-};
-
-// CLTV/CSV need specific tx fields the corpus doesn't model here (skipped)
 const TIMELOCK = /CHECKLOCKTIMEVERIFY|CHECKSEQUENCEVERIFY/;
+// witness structure / malleability validation (BIP 141) is not modelled here
+const WITNESS_STRUCT = new Set([
+  'WITNESS_UNEXPECTED', 'WITNESS_MALLEATED', 'WITNESS_MALLEATED_P2SH',
+  'WITNESS_PROGRAM_WRONG_LENGTH', 'WITNESS_PROGRAM_WITNESS_EMPTY',
+  'WITNESS_PROGRAM_MISMATCH', 'DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM']);
 
-// Core's CreateCrediting/SpendingTransaction: the signatures in the corpus
-// were produced against exactly this dummy spend tx, so reproducing it lets
-// real CHECKSIG/CHECKMULTISIG vectors verify against the same sighash.
-function dummySpend(scriptSigHex, scriptPubKeyHex, amount = 0) {
+// Core's CreateCrediting/SpendingTransaction: the signatures in the corpus were
+// produced against exactly this dummy spend tx, so reproducing it lets real
+// CHECKSIG/CHECKMULTISIG (and witness) vectors verify against the same sighash.
+// Witness cases carry [elements…, amount] (amount in BTC) as the first entry.
+function dummySpend(scriptSigHex, scriptPubKeyHex, amount, witness) {
   const credit = {
     version: 1, lockTime: 0,
     inputs: [{ prevout: { txid: '00'.repeat(32), vout: 0xffffffff }, scriptSig: '0000', sequence: 0xffffffff }],
     outputs: [{ value: amount, scriptPubKey: scriptPubKeyHex }],
   };
-  return {
+  const spend = {
     version: 1, lockTime: 0,
     inputs: [{ prevout: { txid: codec.txid(credit), vout: 0 }, scriptSig: scriptSigHex, sequence: 0xffffffff }],
     outputs: [{ value: amount, scriptPubKey: '' }],
   };
+  if (witness) spend.witness = [witness];
+  return spend;
 }
 
-test('Bitcoin Core script_tests.json: every non-P2SH/non-witness case matches our interpreter', () => {
+test('Bitcoin Core script_tests.json: every case matches our interpreter (bare, P2SH, witness)', () => {
   let ran = 0, matched = 0;
-  const skip = { witness: 0, timelock: 0, realP2SH: 0, realWitness: 0, unparseable: 0 };
+  const skip = { timelock: 0, witnessStruct: 0, nonCanonP2SH: 0, unmodeled: 0, unparseable: 0 };
   const mismatches = [];
 
   for (const t of cases) {
     if (t.length < 4) continue;                       // comment-only line
-    if (Array.isArray(t[0])) { skip.witness++; continue; } // [witness, amount] segwit case
-    const [sig, spk, flags, expected] = t;
-    if (TIMELOCK.test(sig) || TIMELOCK.test(spk)) { skip.timelock++; continue; }
+    let witness = null, amount = 0, sig, spk, flags, expected;
+    if (Array.isArray(t[0])) { // [witnessElements…, amountBTC] for segwit cases
+      witness = t[0].slice(0, -1);
+      amount = Math.round(t[0][t[0].length - 1] * 1e8);
+      [, sig, spk, flags, expected] = t;
+    } else { [sig, spk, flags, expected] = t; }
+
+    if (TIMELOCK.test(sig) || TIMELOCK.test(spk)) { skip.timelock++; continue; } // need specific tx fields
+    if (WITNESS_STRUCT.has(expected)) { skip.witnessStruct++; continue; }
     let sigHex, spkHex;
     try { sigHex = parseScript(sig); spkHex = parseScript(spk); } catch { skip.unparseable++; continue; }
-    // skip only when the scriptPubKey is ACTUALLY a P2SH / witness program under that flag
-    const type = scriptEngine.classify(spkHex).type;
-    if (/P2SH/.test(flags) && type === 'p2sh') { skip.realP2SH++; continue; }
-    if (/WITNESS/.test(flags) && /witness|segwit|p2w/i.test(type)) { skip.realWitness++; continue; }
+    // non-canonical P2SH push (PUSHDATA in the HASH160…EQUAL pattern) — not classified as P2SH by us
+    if (/P2SH/.test(flags) && scriptEngine.classify(spkHex).type === 'p2sh' && /^(4c|4d|4e)/.test(spkHex.slice(2, 4))) {
+      skip.nonCanonP2SH++; continue;
+    }
 
     const fset = new Set(flags.split(/[,\s]+/).filter(Boolean));
+    const tx = dummySpend(sigHex, spkHex, amount, witness);
+    const prevout = { value: amount, scriptPubKey: spkHex };
     let ours;
     try {
-      // SIGPUSHONLY: scriptSig must be push-only (every opcode <= OP_16)
-      if (fset.has('SIGPUSHONLY') && !scriptEngine.parse(sigHex).every((o) => o.code <= 0x60)) {
-        ours = false;
-      } else {
-        const tx = dummySpend(sigHex, spkHex);
-        const base = { tx, inIndex: 0, amount: 0, sigVersion: 'legacy', flags: fset };
-        const stack = [];
-        let r = interp.execute(sigHex, stack, { ...base, scriptCode: sigHex });
-        if (r.ok) r = interp.execute(spkHex, stack, { ...base, scriptCode: spkHex });
-        ours = r.ok && stack.length > 0 && castToBool(stack[stack.length - 1]);
-        if (ours && fset.has('CLEANSTACK') && stack.length !== 1) ours = false;
-      }
-    } catch { skip.timelock++; continue; } // opcode that needs tx context we don't model here
+      const r = interp.verifyInput(tx, 0, prevout, [prevout], fset);
+      if (r.ok === null) { skip.unmodeled++; continue; } // honestly unverifiable path
+      ours = r.ok;
+    } catch (e) { ours = `THROW:${e.message}`; }
 
     ran++;
     if (ours === (expected === 'OK')) matched++;
@@ -140,7 +143,7 @@ test('Bitcoin Core script_tests.json: every non-P2SH/non-witness case matches ou
   }
 
   console.log(`  script_tests.json: ran ${ran}/${cases.length}, matched ${matched}; skipped ${JSON.stringify(skip)}`);
-  assert.ok(ran >= 1050, `expected to cover >=1050 cases, ran ${ran} (corpus or parser changed?)`);
+  assert.ok(ran >= 1150, `expected to cover >=1150 cases, ran ${ran} (corpus or parser changed?)`);
   assert.deepEqual(mismatches, [], `\n${mismatches.slice(0, 20).join('\n')}`);
 });
 
