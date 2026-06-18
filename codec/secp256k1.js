@@ -3,7 +3,7 @@
 // requirements. Jacobian coordinates avoid a field inversion per step.
 
 const P = 0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2fn;
-const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
+export const N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
 const GX = 0x79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798n;
 const GY = 0x483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8n;
 
@@ -72,7 +72,8 @@ const bytesToBig = (bytes) => {
 // 33-byte compressed (02/03) or 65-byte uncompressed (04) SEC1 public key
 // -> affine point, or null if not on the curve.
 export function parsePubkey(bytes) {
-  if (bytes.length === 65 && bytes[0] === 0x04) {
+  // 0x04 uncompressed; 0x06/0x07 hybrid (valid pre-STRICTENC, y given explicitly)
+  if (bytes.length === 65 && (bytes[0] === 0x04 || bytes[0] === 0x06 || bytes[0] === 0x07)) {
     const x = bytesToBig(bytes.subarray(1, 33));
     const y = bytesToBig(bytes.subarray(33, 65));
     if (mod(y * y) !== mod(x * x * x + 7n)) return null;
