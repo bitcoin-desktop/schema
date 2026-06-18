@@ -11,7 +11,7 @@
 // and signature pushes are not FindAndDelete'd from legacy scriptCode.
 
 import { sha256, dsha256, sha1, ripemd160, hash160, bytesToHex, hexToBytes, taggedHash } from './hash.js';
-import { parsePubkey, parseDerSignature, verifyEcdsa, verifySchnorr, checkTapTweak } from './secp256k1.js';
+import { parsePubkey, parseDerSignature, verifyEcdsa, verifySchnorr, checkTapTweak, N } from './secp256k1.js';
 
 class ScriptError extends Error {}
 const fail = (msg) => { throw new ScriptError(msg); };
@@ -73,6 +73,39 @@ function minimalPushOk(code, dataHex) {
   if (len <= 255) return code === 0x4c;                 // OP_PUSHDATA1
   if (len <= 65535) return code === 0x4d;               // OP_PUSHDATA2
   return true;
+}
+
+// ---- signature/pubkey encoding rules, gated by verification flags ----
+// (sig includes its trailing 1-byte hashtype.)
+// BIP 66 strict DER:
+function isValidDerSig(sig) {
+  const len = sig.length;
+  if (len < 9 || len > 73) return false;
+  if (sig[0] !== 0x30 || sig[1] !== len - 3 || sig[2] !== 0x02) return false;
+  const lenR = sig[3];
+  if (5 + lenR >= len) return false;
+  const lenS = sig[5 + lenR];
+  if (lenR + lenS + 7 !== len) return false;
+  if (lenR === 0 || (sig[4] & 0x80)) return false;
+  if (lenR > 1 && sig[4] === 0x00 && !(sig[5] & 0x80)) return false;
+  if (sig[lenR + 4] !== 0x02 || lenS === 0 || (sig[lenR + 6] & 0x80)) return false;
+  if (lenS > 1 && sig[lenR + 6] === 0x00 && !(sig[lenR + 7] & 0x80)) return false;
+  return true;
+}
+// BIP 62 low-S:
+function isLowDerSig(sig) {
+  const p = parseDerSignature(sig.subarray(0, sig.length - 1));
+  return !!p && p.s <= N / 2n;
+}
+// STRICTENC defined hashtype (SIGHASH_ALL/NONE/SINGLE, optionally ANYONECANPAY):
+function isDefinedHashtype(sig) {
+  const ht = sig[sig.length - 1] & ~0x80;
+  return ht >= 1 && ht <= 3;
+}
+// STRICTENC pubkey: compressed (33, 0x02/0x03) or uncompressed (65, 0x04):
+function isPubKeyEnc(pub) {
+  return (pub.length === 33 && (pub[0] === 0x02 || pub[0] === 0x03))
+      || (pub.length === 65 && pub[0] === 0x04);
 }
 
 export class ScriptInterpreter {
@@ -219,6 +252,13 @@ export class ScriptInterpreter {
 
   #checkSig(sigBytes, pubBytes, ctx) {
     if (ctx.sigVersion === 'tapscript') return this.#checkSigTapscript(sigBytes, pubBytes, ctx);
+    const f = ctx.flags;
+    if (f && sigBytes.length > 0) {
+      if ((f.has('DERSIG') || f.has('LOW_S') || f.has('STRICTENC')) && !isValidDerSig(sigBytes)) fail('non-DER signature');
+      if (f.has('LOW_S') && !isLowDerSig(sigBytes)) fail('high-S signature');
+      if (f.has('STRICTENC') && !isDefinedHashtype(sigBytes)) fail('undefined hashtype');
+    }
+    if (f?.has('STRICTENC') && !isPubKeyEnc(pubBytes)) fail('bad pubkey encoding');
     if (sigBytes.length === 0) return false;
     const hashType = sigBytes[sigBytes.length - 1];
     const sig = parseDerSignature(sigBytes.subarray(0, sigBytes.length - 1));
@@ -330,11 +370,15 @@ export class ScriptInterpreter {
 
       OP_CHECKSIG: (s, ctx) => {
         const pub = pop(s), sig = pop(s);
-        s.push(boolBytes(this.#checkSig(sig, pub, ctx)));
+        const ok = this.#checkSig(sig, pub, ctx);
+        if (!ok && sig.length > 0 && ctx.flags?.has('NULLFAIL')) fail('NULLFAIL');
+        s.push(boolBytes(ok));
       },
       OP_CHECKSIGVERIFY: (s, ctx) => {
         const pub = pop(s), sig = pop(s);
-        if (!this.#checkSig(sig, pub, ctx)) fail('checksigverify');
+        const ok = this.#checkSig(sig, pub, ctx);
+        if (!ok && sig.length > 0 && ctx.flags?.has('NULLFAIL')) fail('NULLFAIL');
+        if (!ok) fail('checksigverify');
       },
       OP_CHECKMULTISIG: (s, ctx) => {
         if (ctx.sigVersion === 'tapscript') fail('CHECKMULTISIG disabled in tapscript');
@@ -382,22 +426,33 @@ export class ScriptInterpreter {
 
   #checkMultisig(s, ctx) {
     const pop = () => { if (!s.length) fail('stack underflow'); return s.pop(); };
-    const n = numDecode(pop());
+    const n = numDecode(pop(), 4, this.requireMinimalNum);
     if (n < 0 || n > this.limits.maxMultisigKeys) fail('pubkey count');
+    ctx._extraOps = (ctx._extraOps || 0) + n; // CHECKMULTISIG adds its key count to the op limit
     const pubs = [];
     for (let i = 0; i < n; i++) pubs.push(pop());
-    const m = numDecode(pop());
+    const m = numDecode(pop(), 4, this.requireMinimalNum);
     if (m < 0 || m > n) fail('sig count');
     const sigs = [];
     for (let i = 0; i < m; i++) sigs.push(pop());
-    pop(); // the historical extra-pop dummy
-    sigs.reverse(); pubs.reverse(); // restore script order
-    let isig = 0;
-    for (let ikey = 0; ikey < pubs.length && isig < sigs.length; ikey++) {
-      if (sigs.length - isig > pubs.length - ikey) return false;
+    const dummy = pop(); // the historical extra-pop dummy
+    if (ctx.flags?.has('NULLDUMMY') && dummy.length !== 0) fail('NULLDUMMY');
+    // sigs and pubs are in stack-pop order (top first) — Core evaluates in
+    // exactly this order, checking the current pair's encoding before the
+    // not-enough-keys early-exit, so a later invalid key/sig may never be
+    // reached. (No reverse: matching is order-preserving for valid cases.)
+    let isig = 0, ikey = 0, success = true;
+    while (success && isig < sigs.length) {
       if (this.#checkSig(sigs[isig], pubs[ikey], ctx)) isig++;
+      ikey++;
+      if (sigs.length - isig > pubs.length - ikey) success = false;
     }
-    return isig === sigs.length;
+    const ok = success && isig === sigs.length;
+    // BIP 146: a failed multisig requires every signature to be empty
+    if (!ok && ctx.flags?.has('NULLFAIL')) {
+      for (const sg of sigs) if (sg.length > 0) fail('NULLFAIL');
+    }
+    return ok;
   }
 
   // ---- execution ----
@@ -439,6 +494,10 @@ export class ScriptInterpreter {
         const handler = this.handlers[op.name];
         if (!handler) fail(`bad opcode ${op.name}`);
         handler(stack, ctx, exec, op, executing);
+        if (ctx._extraOps) { // CHECKMULTISIG key count, counted after the op runs
+          opCount += ctx._extraOps; ctx._extraOps = 0;
+          if (opCount > this.limits.maxOpsPerScript) fail('op count');
+        }
         if (stack.length + ctx.alt.length > this.limits.maxStackSize) fail('stack size');
       }
       if (exec.length) fail('unbalanced conditional');
