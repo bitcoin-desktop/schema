@@ -14,7 +14,16 @@ const K = new Uint32Array([
 
 const rotr = (x, n) => (x >>> n) | (x << (32 - n));
 
+// Optional SHA-256 backend (e.g. native node:crypto / WebCrypto / WASM) injected
+// by performance-sensitive callers; null = the pure-JS path below. Keeps this
+// module zero-dependency: the engine never imports an accelerated hasher, the
+// caller supplies one. Must return a 32-byte Uint8Array byte-identical to the
+// pure-JS implementation (callers gate on a consensus-equivalence proof).
+let __sha256Backend = null;
+export function setSha256Backend(fn) { __sha256Backend = fn; }
+
 export function sha256(data) {
+  if (__sha256Backend) return __sha256Backend(data);
   const len = data.length;
   const bitLen = len * 8;
   const padded = new Uint8Array((((len + 8) >> 6) + 1) << 6);
