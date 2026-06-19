@@ -109,9 +109,16 @@ export function parseDerSignature(bytes) {
   }
 }
 
+// Optional verify backend (e.g. WASM libsecp256k1) injected by performance-
+// sensitive callers; null = the pure-JS path. Keeps this module zero-dependency:
+// the engine never imports a WASM lib, the caller supplies one.
+let __verifyBackend = null;
+export function setVerifyBackend(b) { __verifyBackend = b; }
+
 // ECDSA verify: signature (parsed r,s) over a 32-byte message hash with an
 // affine public key point.
 export function verifyEcdsa(msgHash, sig, pubkey) {
+  if (__verifyBackend) return __verifyBackend.ecdsa(msgHash, sig, pubkey);
   const { r, s } = sig;
   if (r <= 0n || r >= N || s <= 0n || s >= N) return false;
   const e = mod(bytesToBig(msgHash), N);
@@ -146,6 +153,7 @@ export function liftX(xBytes) {
 }
 
 export function verifySchnorr(msg32, sig64, pubkey32) {
+  if (__verifyBackend) return __verifyBackend.schnorr(msg32, sig64, pubkey32);
   if (sig64.length !== 64 || pubkey32.length !== 32) return false;
   const Ppoint = liftX(pubkey32);
   if (!Ppoint) return false;
