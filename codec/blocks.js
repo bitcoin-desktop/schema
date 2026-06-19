@@ -192,7 +192,14 @@ export class BlockEngine {
   // coinbase scriptSig. Returns null if unparseable.
   bip34Height(coinbaseTx) {
     const script = hexToBytes(coinbaseTx.inputs[0].scriptSig);
-    const len = script[0];
+    const op = script[0];
+    if (op === undefined) return null;
+    // Heights 1-16 use the minimal push OP_1..OP_16 (0x51..0x60), a single
+    // opcode byte rather than a length-prefixed push. Core's `CScript() << height`
+    // encodes them this way, so BIP34 requires exactly this on those blocks.
+    if (op >= 0x51 && op <= 0x60) return op - 0x50;
+    // Otherwise a length-prefixed little-endian scriptnum push (1..5 data bytes).
+    const len = op;
     if (len < 1 || len > 5 || script.length < 1 + len) return null;
     let n = 0;
     for (let i = len; i >= 1; i--) n = n * 256 + script[i];
