@@ -114,6 +114,18 @@ export class ScriptInterpreter {
     this.scriptEngine = scriptEngine;
     this.limits = limits;
     this.handlers = this.#buildHandlers();
+    // Per-transaction sighash midstate cache (BIP143/BIP341 hashPrevouts,
+    // hashSequence, hashOutputs, etc. depend only on the whole tx, not the input
+    // being signed). Without this, a tx with n segwit/taproot inputs recomputes
+    // these O(n)-sized hashes n times = O(n^2); a 1,400-input consolidation then
+    // takes ~minutes. Keyed by the tx object (WeakMap) so it clears itself.
+    this._sigCache = new WeakMap();
+  }
+
+  #txCache(tx) {
+    let c = this._sigCache.get(tx);
+    if (!c) { c = {}; this._sigCache.set(tx, c); }
+    return c;
   }
 
   // ---- sighash ----
@@ -162,11 +174,13 @@ export class ScriptInterpreter {
       let p = 0; for (const a of arrs) { out.set(a, p); p += a.length; }
       return out;
     };
-    const hashPrevouts = anyone ? zero : dsha256(cat(tx.inputs.map(outpoint)));
-    const hashSequence = (anyone || base === 2 || base === 3) ? zero
-      : dsha256(cat(tx.inputs.map((i) => u32(i.sequence))));
     const serOut = (o) => this.codec.encode('TransactionOutput', o);
-    const hashOutputs = (base !== 2 && base !== 3) ? dsha256(cat(tx.outputs.map(serOut)))
+    // These three depend only on the whole tx — memoize per tx (see #txCache).
+    const C = this.#txCache(tx);
+    const hashPrevouts = anyone ? zero : (C.wPrevouts ??= dsha256(cat(tx.inputs.map(outpoint))));
+    const hashSequence = (anyone || base === 2 || base === 3) ? zero
+      : (C.wSequence ??= dsha256(cat(tx.inputs.map((i) => u32(i.sequence)))));
+    const hashOutputs = (base !== 2 && base !== 3) ? (C.wOutputs ??= dsha256(cat(tx.outputs.map(serOut))))
       : (base === 3 && inIndex < tx.outputs.length) ? dsha256(serOut(tx.outputs[inIndex]))
       : zero;
     const script = hexToBytes(scriptCodeHex);
@@ -204,15 +218,18 @@ export class ScriptInterpreter {
     };
     const outpoint = (inp) => cat([hexToBytes(inp.prevout.txid).reverse(), u32(inp.prevout.vout)]);
 
+    // sha_prevouts/amounts/scriptpubkeys/sequences/outputs depend only on the
+    // whole tx (+ its prevout set, identical across inputs) — memoize per tx.
+    const C = this.#txCache(tx);
     const parts = [u8(0x00), u8(hashType), u32(tx.version), u32(tx.lockTime)];
     if (!anyone) {
-      parts.push(sha256(cat(tx.inputs.map(outpoint))));
-      parts.push(sha256(cat(prevouts.map((p) => i64(p.value)))));
-      parts.push(sha256(cat(prevouts.map((p) => varbytes(hexToBytes(p.scriptPubKey))))));
-      parts.push(sha256(cat(tx.inputs.map((i) => u32(i.sequence)))));
+      parts.push(C.tPrevouts ??= sha256(cat(tx.inputs.map(outpoint))));
+      parts.push(C.tAmounts ??= sha256(cat(prevouts.map((p) => i64(p.value)))));
+      parts.push(C.tScriptpubkeys ??= sha256(cat(prevouts.map((p) => varbytes(hexToBytes(p.scriptPubKey))))));
+      parts.push(C.tSequences ??= sha256(cat(tx.inputs.map((i) => u32(i.sequence)))));
     }
     if (base !== 2 && base !== 3) {
-      parts.push(sha256(cat(tx.outputs.map((o) => this.codec.encode('TransactionOutput', o)))));
+      parts.push(C.tOutputs ??= sha256(cat(tx.outputs.map((o) => this.codec.encode('TransactionOutput', o)))));
     }
     parts.push(u8((leafHash ? 2 : 0) + (annex ? 1 : 0))); // spend_type
     if (anyone) {
