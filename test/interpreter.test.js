@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Codec } from '../codec/codec.js';
 import { ScriptEngine } from '../codec/script.js';
-import { ScriptInterpreter, numEncode, numDecode } from '../codec/interpreter.js';
+import { ScriptInterpreter, numEncode, numDecode, compactSize } from '../codec/interpreter.js';
 import { sha1, ripemd160, hash160, bytesToHex, hexToBytes } from '../codec/hash.js';
 
 const root = new URL('..', import.meta.url);
@@ -37,6 +37,20 @@ test('scriptnum round-trips with sign-bit semantics', () => {
   }
   assert.deepEqual([...numEncode(128)], [128, 0]); // needs a padding byte
   assert.deepEqual([...numEncode(-1)], [0x81]);
+});
+
+test('compactSize encodes all four ranges incl. >64kB tapscripts (schema#67)', () => {
+  const h = (n) => bytesToHex(compactSize(n));
+  assert.equal(h(0), '00');
+  assert.equal(h(252), 'fc');
+  assert.equal(h(253), 'fdfd00');
+  assert.equal(h(0xffff), 'fdffff');
+  // The boundary the old TapLeaf code got wrong: >= 65,536 needs the 0xfe form.
+  assert.equal(h(0x10000), 'fe00000100');
+  // The real failure: testnet4 block 29,572 spent a 167,093-byte inscription
+  // tapscript; the broken 3-byte prefix corrupted the TapLeaf hash so the
+  // control-block commitment never matched.
+  assert.equal(h(167093), 'feb58c0200');
 });
 
 test('stack machine basics', () => {

@@ -53,6 +53,16 @@ const truthy = (bytes) => {
 const boolBytes = (b) => (b ? Uint8Array.of(1) : new Uint8Array(0));
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
+// Bitcoin CompactSize (1/3/5/9 bytes), matching the codec's varint writer.
+// Used for the script-length prefix in the BIP341 TapLeaf hash; tapscripts can
+// exceed 65,535 bytes (large inscriptions), so the 0xfe 4-byte case is required.
+export function compactSize(n) {
+  if (n < 0xfd) return Uint8Array.of(n);
+  if (n <= 0xffff) return Uint8Array.of(0xfd, n & 0xff, (n >>> 8) & 0xff);
+  if (n <= 0xffffffff) return Uint8Array.of(0xfe, n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff);
+  const b = new Uint8Array(9); b[0] = 0xff; new DataView(b.buffer).setBigUint64(1, BigInt(n), true); return b;
+}
+
 const DEFAULT_LIMITS = {
   maxScriptSize: 10000, maxScriptElementSize: 520,
   maxOpsPerScript: 201, maxStackSize: 1000, maxMultisigKeys: 20,
@@ -633,10 +643,7 @@ export class ScriptInterpreter {
     const leafVersion = control[0] & 0xfe;
     const parity = control[0] & 0x01;
     const internalKey = control.subarray(1, 33);
-    const sizePrefix = script.length < 0xfd
-      ? Uint8Array.of(script.length)
-      : Uint8Array.of(0xfd, script.length & 0xff, script.length >> 8);
-    const leafHash = taggedHash('TapLeaf', Uint8Array.of(leafVersion), sizePrefix, script);
+    const leafHash = taggedHash('TapLeaf', Uint8Array.of(leafVersion), compactSize(script.length), script);
     let k = leafHash;
     for (let i = 33; i < control.length; i += 32) {
       const e = control.subarray(i, i + 32);
