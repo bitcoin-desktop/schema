@@ -46,6 +46,21 @@ test('subsidy schedule', () => {
   assert.equal(engine.subsidy(840000), 3_1250_0000);
 });
 
+test('BIP34 height parses OP_1..OP_16 and length-prefixed pushes (schema#60)', () => {
+  const cb = (scriptSig) => ({ inputs: [{ scriptSig }] });
+  // Heights 1-16 encode as OP_1..OP_16 (0x51..0x60), a single opcode byte
+  // (Core's `CScript() << height`), not a length-prefixed push.
+  assert.equal(engine.bip34Height(cb('51')), 1);
+  assert.equal(engine.bip34Height(cb('5104ffffffff')), 1); // extranonce after the height
+  assert.equal(engine.bip34Height(cb('56')), 6);
+  assert.equal(engine.bip34Height(cb('60')), 16);
+  // Heights >= 17 use a length-prefixed little-endian scriptnum push.
+  assert.equal(engine.bip34Height(cb('0111')), 17);
+  assert.equal(engine.bip34Height(cb('03a08601')), 100000);
+  // Empty / unparseable coinbase scriptSig.
+  assert.equal(engine.bip34Height(cb('')), null);
+});
+
 test('all six blocks round-trip byte-exactly', () => {
   blocks.forEach((block, i) => {
     assert.equal(codec.encodeHex('Block', block), vector.blocks[i], `block ${100000 + i}`);
