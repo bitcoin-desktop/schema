@@ -483,7 +483,9 @@ export class ScriptInterpreter {
   // amount, sigVersion, alt}. Returns {ok, error?}; stack is mutated.
   execute(scriptHex, stack, ctx = {}) {
     try {
-      if (scriptHex.length / 2 > this.limits.maxScriptSize) fail('script too large');
+      // BIP342: tapscript has no script-size limit. The legacy 10kB MAX_SCRIPT_SIZE
+      // does not apply; size is bounded by block weight + the per-input sigops budget.
+      if (ctx.sigVersion !== 'tapscript' && scriptHex.length / 2 > this.limits.maxScriptSize) fail('script too large');
       ctx.alt = ctx.alt ?? [];
       ctx.scriptCode = ctx.scriptCode ?? scriptHex;
       this.requireMinimalNum = !!ctx.flags?.has('MINIMALDATA'); // for the shared num() helper
@@ -509,7 +511,8 @@ export class ScriptInterpreter {
           }
           continue;
         }
-        if (op.code > 0x60 && ++opCount > this.limits.maxOpsPerScript) fail('op count');
+        // BIP342: tapscript removes the 201-opcode-per-script limit (sigops budget governs instead).
+        if (ctx.sigVersion !== 'tapscript' && op.code > 0x60 && ++opCount > this.limits.maxOpsPerScript) fail('op count');
         if (this.#isDisabled(op.name)) fail(`disabled opcode ${op.name}`);
         const isBranch = ['OP_IF', 'OP_NOTIF', 'OP_ELSE', 'OP_ENDIF'].includes(op.name);
         if (!executing && !isBranch) continue;

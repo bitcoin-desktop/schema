@@ -55,6 +55,26 @@ test('stack machine basics', () => {
   assert.equal(bytesToHex(s.pop()), bytesToHex(hash160(new Uint8Array(0))));
 });
 
+test('BIP342: tapscript exempt from the 10kB size and 201-opcode limits (schema#61)', () => {
+  const tap = (hex) => interp.execute(hex, [], { sigVersion: 'tapscript' });
+  const legacy = (hex) => interp.execute(hex, []);
+  // unit = OP_1 OP_DROP: 2 bytes, stack-neutral, 1 counted (non-push) opcode.
+  // A >10kB script that also blows past the 201-opcode limit, ending truthy.
+  const big = '5175'.repeat(6000) + '51'; // 12,001 bytes, 6,000 OP_DROPs
+  assert.ok(big.length / 2 > limits.maxScriptSize, 'fixture must exceed 10kB');
+
+  // tapscript: neither legacy limit applies -> validates.
+  assert.deepEqual(tap(big), { ok: true }, 'tapscript >10kB / >201 ops must validate');
+  // legacy: the 10kB MAX_SCRIPT_SIZE still bites (checked before parse).
+  assert.deepEqual(legacy(big), { ok: false, error: 'script too large' });
+
+  // Isolate the opcode limit: under 10kB but >201 counted ops.
+  const manyOps = '5175'.repeat(300) + '51'; // 601 bytes, 300 OP_DROPs
+  assert.ok(manyOps.length / 2 <= limits.maxScriptSize && 300 > limits.maxOpsPerScript);
+  assert.deepEqual(tap(manyOps), { ok: true }, 'tapscript ignores the 201-opcode limit');
+  assert.deepEqual(legacy(manyOps), { ok: false, error: 'op count' });
+});
+
 test('every signature in blocks 100000-100005 verifies (p2pk + p2pkh era)', () => {
   const blocks = window100k.blocks.map((hex) => codec.decode('Block', hex));
   const external = new Map(
