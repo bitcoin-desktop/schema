@@ -68,6 +68,28 @@ test('truncated push classifies as nonstandard without throwing', () => {
   assert.ok(asm.includes('[truncated push]'));
 });
 
+test('parse never throws or runs backwards on malformed pushes (schema#62)', () => {
+  // OP_PUSHDATA4 with a high-bit length was read as a *signed* int, going
+  // negative: it slipped the bounds check and sent the cursor backwards into
+  // undefined bytes, crashing on code.toString(16). Real testnet4 coinbase
+  // scriptSig (height 82,506) that triggered it, plus the bare-prefix family.
+  const cases = [
+    '034a420100fe4ecf3500fe735307000963676d696e65723432083e0000000000000000', // real coinbase
+    '4e', '4effffffff', '4d', '4c', '4cff', '4c01',
+  ];
+  for (const hex of cases) {
+    assert.doesNotThrow(() => engine.parse(hex), `parse(${hex}) must not throw`);
+    const ops = engine.parse(hex);
+    assert.ok(ops.every((o) => o.code !== undefined), `parse(${hex}) yielded an undefined opcode`);
+  }
+  // Malformed length prefix => exactly one terminating 'truncated push' op.
+  assert.deepEqual(engine.parse('4effffffff').map((o) => o.error).filter(Boolean), ['truncated push']);
+  // Valid pushes are unaffected.
+  assert.equal(engine.parse('0141')[0].data, '41');
+  assert.equal(engine.parse('4c0141')[0].data, '41');
+  assert.equal(engine.parse('4c00')[0].data, ''); // genuine zero-length push
+});
+
 test('asm renders opcodes and pushes', () => {
   const p2pkh = vectors.outputs.find((o) => o.esploraType === 'p2pkh');
   const asm = engine.asm(p2pkh.scriptHex);

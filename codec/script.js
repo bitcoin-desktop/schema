@@ -75,12 +75,18 @@ export class ScriptEngine {
       if (code >= 0x01 && code <= 0x4b) len = code;
       else if (code === 0x4c) { len = bytes[i]; i += 1; }
       else if (code === 0x4d) { len = bytes[i] | (bytes[i + 1] << 8); i += 2; }
-      else if (code === 0x4e) { len = bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24); i += 4; }
+      // >>> 0: the 4-byte length is unsigned. Without it, JS's `<< 24` makes a
+      // high-bit length negative, which slips past the bounds check below and
+      // sends `i` negative, looping into undefined bytes (crashes on malformed
+      // coinbase scriptSig data). See bitcoin-desktop/schema#62.
+      else if (code === 0x4e) { len = (bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24)) >>> 0; i += 4; }
       if (len === null) {
         ops.push({ code, name: this.byCode.get(code) ?? `OP_UNKNOWN_0x${code.toString(16).padStart(2, '0')}` });
         continue;
       }
-      if (Number.isNaN(len) || i + len > bytes.length) {
+      // Truncated if the length prefix itself overran the end (i > length, len
+      // undefined/0), the declared push runs past the end, or len isn't finite.
+      if (len == null || Number.isNaN(len) || i > bytes.length || i + len > bytes.length) {
         ops.push({ code, name: 'OP_PUSH', error: 'truncated push' });
         break;
       }
