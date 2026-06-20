@@ -5,10 +5,12 @@
 //
 // Supported spend paths: p2pk, p2pkh, bare multisig, p2sh (including
 // wrapped segwit), p2wpkh, p2wsh — with legacy and BIP 143 sighash and
-// real ECDSA verification. NOT supported (verifyInput returns ok:null):
-// taproot (Schnorr/BIP 341). Known simplifications, accepted for now:
-// OP_CODESEPARATOR is a no-op (scriptCode is the full executing script)
-// and signature pushes are not FindAndDelete'd from legacy scriptCode.
+// real ECDSA verification. OP_CODESEPARATOR truncates the legacy/segwit-v0
+// sighash scriptCode at the last executed separator (Core's pbegincodehash).
+// NOT supported (verifyInput returns ok:null): taproot (Schnorr/BIP 341).
+// Known simplifications, accepted for now: signature pushes are not
+// FindAndDelete'd from legacy scriptCode, and the tapscript codeseparator
+// position (BIP 342) is not yet committed in the BIP 341 message.
 
 import { sha256, dsha256, sha1, ripemd160, hash160, bytesToHex, hexToBytes, taggedHash } from './hash.js';
 import { parsePubkey, parseDerSignature, verifyEcdsa, verifySchnorr, checkTapTweak, N } from './secp256k1.js';
@@ -296,9 +298,11 @@ export class ScriptInterpreter {
     const sig = parseDerSignature(sigBytes.subarray(0, sigBytes.length - 1));
     const pub = parsePubkey(pubBytes);
     if (!sig || !pub) return false;
+    // scriptCode is truncated to start after the last executed OP_CODESEPARATOR
+    const scriptCode = ctx.codeSepOffset ? ctx.scriptCode.slice(ctx.codeSepOffset * 2) : ctx.scriptCode;
     const hash = ctx.sigVersion === 'witnessV0'
-      ? this.sighashWitnessV0(ctx.tx, ctx.inIndex, ctx.scriptCode, ctx.amount, hashType)
-      : this.sighashLegacy(ctx.tx, ctx.inIndex, ctx.scriptCode, hashType);
+      ? this.sighashWitnessV0(ctx.tx, ctx.inIndex, scriptCode, ctx.amount, hashType)
+      : this.sighashLegacy(ctx.tx, ctx.inIndex, scriptCode, hashType);
     return verifyEcdsa(hash, sig, pub);
   }
 
@@ -318,7 +322,11 @@ export class ScriptInterpreter {
     const h = {
       OP_0: (s) => s.push(new Uint8Array(0)),
       OP_1NEGATE: (s) => pushNum(s, -1),
-      OP_NOP: () => {}, OP_CODESEPARATOR: () => {},
+      OP_NOP: () => {},
+      // Legacy/segwit-v0: the sighash scriptCode begins after the last *executed*
+      // OP_CODESEPARATOR (Core's pbegincodehash). Only updated when executing, so
+      // a separator inside an untaken IF branch has no effect.
+      OP_CODESEPARATOR: (s, ctx, exec, op) => { ctx.codeSepOffset = op.at + 1; },
       OP_IF: (s, ctx, exec, _, executing) => {
         let f = false;
         if (executing) {
@@ -499,6 +507,7 @@ export class ScriptInterpreter {
       if (ctx.sigVersion !== 'tapscript' && scriptHex.length / 2 > this.limits.maxScriptSize) fail('script too large');
       ctx.alt = ctx.alt ?? [];
       ctx.scriptCode = ctx.scriptCode ?? scriptHex;
+      ctx.codeSepOffset = 0;          // bytes before the last executed OP_CODESEPARATOR; reset per script run
       this.requireMinimalNum = !!ctx.flags?.has('MINIMALDATA'); // for the shared num() helper
 
       const ops = this.scriptEngine.parse(scriptHex);

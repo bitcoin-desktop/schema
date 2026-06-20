@@ -70,6 +70,7 @@ export class ScriptEngine {
     const ops = [];
     let i = 0;
     while (i < bytes.length) {
+      const at = i;                     // byte offset of this opcode (OP_CODESEPARATOR scriptCode truncation needs it)
       const code = bytes[i++];
       let len = null;
       if (code >= 0x01 && code <= 0x4b) len = code;
@@ -81,17 +82,17 @@ export class ScriptEngine {
       // coinbase scriptSig data). See bitcoin-desktop/schema#62.
       else if (code === 0x4e) { len = (bytes[i] | (bytes[i + 1] << 8) | (bytes[i + 2] << 16) | (bytes[i + 3] << 24)) >>> 0; i += 4; }
       if (len === null) {
-        ops.push({ code, name: this.byCode.get(code) ?? `OP_UNKNOWN_0x${code.toString(16).padStart(2, '0')}` });
+        ops.push({ code, name: this.byCode.get(code) ?? `OP_UNKNOWN_0x${code.toString(16).padStart(2, '0')}`, at });
         continue;
       }
       // Truncated if the length prefix itself overran the end (i > length, len
       // undefined/0), the declared push runs past the end, or len isn't finite.
       if (len == null || Number.isNaN(len) || i > bytes.length || i + len > bytes.length) {
-        ops.push({ code, name: 'OP_PUSH', error: 'truncated push' });
+        ops.push({ code, name: 'OP_PUSH', error: 'truncated push', at });
         break;
       }
       const name = code <= 0x4b ? `OP_PUSHBYTES_${code}` : this.byCode.get(code);
-      ops.push({ code, name, data: bytesToHex(bytes.subarray(i, i + len)) });
+      ops.push({ code, name, data: bytesToHex(bytes.subarray(i, i + len)), at });
       i += len;
     }
     return ops;
