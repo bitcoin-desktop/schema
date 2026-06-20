@@ -227,4 +227,4 @@ Zero dependencies, browser and Node. Run the golden tests with `npm test`.
 
 ## License
 
-MIT
+AGPL-3.0-or-later
