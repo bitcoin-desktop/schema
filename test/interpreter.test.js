@@ -142,6 +142,19 @@ test('wrong prevout value breaks a BIP143 signature', () => {
   assert.equal(v.ok, false, 'amount is committed by the BIP143 sighash');
 });
 
+test('OP_CODESEPARATOR truncates the segwit-v0 sighash scriptCode (schema#70)', () => {
+  // testnet4 block 46,779, tx #1 (fb9b18c7…e28aa5), input #0: a p2wsh spend whose
+  // witnessScript is `OP_SIZE 0x50 OP_LESSTHAN OP_VERIFY OP_CODESEPARATOR <pubkey>
+  // OP_CHECKSIG`. The BIP143 scriptCode must start *after* the separator (just
+  // `<pubkey> OP_CHECKSIG`); signing over the whole script rejects the signature.
+  const txHex = '020000000001020dc0150d2844efb332aff927b5c7e8341f87741ffe568c3200f45df9cf5976fb0000000000fdffffff085d15233e2ef68a7a26226cbdfa40ea7088166181fc815e5e7de79b22f6d67e0000000000fdffffff0277040000000000000451024e7300f2052a010000001600143ea3e6ec3a8612e661a3cc2d79aed2f5fb46a81502473044022079be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f8179802205bc597cfbb5b01be850d68ebb65f5a15637b34a1dd3bc99293ca7901ef7d85e983298201509f69ab210279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798ac02473044022060c5880f95e08aea070a477e9921534d4c18646e444b87031be1d275bbf3018d02202401070862c823dab2e33320af4e29ae5793ba943713d0e04b1f2149074bb2b283210360f2408f00eff55b359a200acccb4766dabf90cc2fee6c4ae483118d3917706600000000';
+  const tx = codec.decode('Transaction', txHex);
+  const witnessScript = tx.witness[0][tx.witness[0].length - 1];
+  assert.ok(scripts.parse(witnessScript).some((op) => op.code === 0xab), 'witnessScript contains OP_CODESEPARATOR');
+  const v = interp.verifyInput(tx, 0, { value: 1143, scriptPubKey: '0020359eaf2fdfc8952db69827596cf6fe9093f203bdbbd83749a9953f58a3a93829' });
+  assert.equal(v.ok, true, `expected pass with scriptCode truncated at the separator: ${v.error ?? v.reason}`);
+});
+
 test('taproot inputs skip honestly', () => {
   const tx = codec.decode('Transaction', spends['v0_p2wpkh'].txHex);
   const v = interp.verifyInput(tx, 0,
