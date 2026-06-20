@@ -13,5 +13,5 @@
     "url": "https://github.com/bitcoin-desktop/schema.git"
   },
   "homepage": "https://bitcoin-desktop.github.io/schema/",
-  "license": "MIT"
+  "license": "AGPL-3.0-or-later"
 }
