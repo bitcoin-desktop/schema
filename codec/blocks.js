@@ -227,6 +227,7 @@ export class BlockEngine {
       i === 0 ? NULL_TXID : this.codec.wtxid(tx));
     const root = hexToBytes(this.codec.merkleRoot(wtxids)).reverse();
     const reserved = hexToBytes(block.transactions[0].witness?.[0]?.[0] ?? '00'.repeat(32));
+    if (reserved.length !== 32) return null; // malformed reserved value can never match the commitment
     const cat = new Uint8Array(64);
     cat.set(root); cat.set(reserved, 32);
     return bytesToHex(dsha256(cat));

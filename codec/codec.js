@@ -80,11 +80,23 @@ class Writer {
 export class Codec {
   constructor(...schemas) {
     this.types = new Map();
+    // Network proof-of-work ceiling, as a BigInt. Null until chain params are
+    // supplied; checkProofOfWork skips only the network-specific bound while
+    // it is unset, never the universal range checks.
+    this.powLimit = null;
     for (const schema of schemas) {
       for (const node of schema['@graph'] ?? []) {
         if (node['@type'] === 'ConsensusStruct') this.types.set(shortId(node['@id']), node);
       }
     }
+  }
+
+  // Supply the network parameters the consensus checks need. Called by
+  // createKernel and by HeaderEngine.fromSchemas; safe to call directly when
+  // constructing a Codec by hand.
+  setChainParams(params) {
+    if (params?.powLimit != null) this.powLimit = BigInt('0x' + params.powLimit);
+    return this;
   }
 
   def(typeName) {
@@ -275,7 +287,34 @@ export class Codec {
     return exponent <= 3 ? mantissa >> (8n * BigInt(3 - exponent)) : mantissa << (8n * BigInt(exponent - 3));
   }
 
-  checkProofOfWork(header) {
-    return BigInt('0x' + this.blockHash(header)) <= this.expandCompact(header.bits);
+  // The target plus the two flags Bitcoin Core's arith_uint256::SetCompact
+  // reports. `negative` is the sign bit the mantissa mask discards; `overflow`
+  // marks an nBits whose target cannot fit in 256 bits. Both make a header
+  // invalid regardless of network.
+  expandCompactChecked(bits) {
+    const size = bits >>> 24;
+    const word = bits & 0x007fffff;
+    return {
+      target: this.expandCompact(bits),
+      negative: word !== 0 && (bits & 0x00800000) !== 0,
+      overflow: word !== 0 && (size > 34
+        || (word > 0xff && size > 33)
+        || (word > 0xffff && size > 32)),
+    };
+  }
+
+  // Core's CheckProofOfWork: the target must be in range *before* the hash is
+  // compared against it. Without the range checks any nBits claiming an easier
+  // target than the network permits is accepted, which makes a proof of work
+  // free to forge.
+  //
+  // `powLimit` defaults to the value set on this codec (see `setChainParams`);
+  // when neither is available the network-specific bound cannot be applied, but
+  // the negative, zero and overflow checks always are.
+  checkProofOfWork(header, powLimit = this.powLimit) {
+    const { target, negative, overflow } = this.expandCompactChecked(header.bits);
+    if (negative || overflow || target === 0n) return false;
+    if (powLimit != null && target > powLimit) return false;
+    return BigInt('0x' + this.blockHash(header)) <= target;
   }
 }
