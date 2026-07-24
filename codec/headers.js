@@ -57,6 +57,9 @@ export class HeaderEngine {
   static fromSchemas(codec, chainSchema, validateSchema, network = 'btc:mainnet') {
     const params = chainSchema['@graph'].find((n) => n['@id'] === network);
     const ruleSet = validateSchema['@graph'].find((n) => n['@type'] === 'RuleSet' && n.phase === 'header');
+    // The SPV ruleset has no difficulty rule, so btc:rule-spv-pow is the only
+    // work check there; the codec needs the ceiling to enforce it.
+    codec.setChainParams(params);
     return new HeaderEngine(codec, params, ruleSet);
   }
 
