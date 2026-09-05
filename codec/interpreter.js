@@ -57,6 +57,9 @@ const truthy = (bytes) => {
 };
 const boolBytes = (b) => (b ? Uint8Array.of(1) : new Uint8Array(0));
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+// Core's SigVersion::BASE: the pre-segwit sighash rules (callers that omit
+// sigVersion get legacy semantics throughout this file).
+const isLegacy = (sigVersion) => sigVersion !== 'witnessV0' && sigVersion !== 'tapscript';
 
 // ---- byte-level script walking, for the two legacy-sighash quirks ----
 // End offset of the op starting at `pos`, or -1 when the push is truncated
@@ -339,6 +342,17 @@ export class ScriptInterpreter {
   #checkSig(sigBytes, pubBytes, ctx) {
     if (ctx.sigVersion === 'tapscript') return this.#checkSigTapscript(sigBytes, pubBytes, ctx);
     const f = ctx.flags;
+    // scriptCode is truncated to start after the last executed OP_CODESEPARATOR
+    let scriptCode = ctx.codeSepOffset ? ctx.scriptCode.slice(ctx.codeSepOffset * 2) : ctx.scriptCode;
+    // Legacy only, and before any encoding check (Core's order): the signature
+    // push is deleted from scriptCode. An empty signature is the push OP_0, so
+    // it deletes OP_0 opcodes too, which CONST_SCRIPTCODE then rejects.
+    // (CHECKMULTISIG deletes every signature up front and sets _sigsDeleted.)
+    if (isLegacy(ctx.sigVersion) && !ctx._sigsDeleted) {
+      const { script, found } = findAndDelete(hexToBytes(scriptCode), pushEncode(sigBytes));
+      if (found && f?.has('CONST_SCRIPTCODE')) fail('SIG_FINDANDDELETE');
+      if (found) scriptCode = bytesToHex(script);
+    }
     if (f && sigBytes.length > 0) {
       if ((f.has('DERSIG') || f.has('LOW_S') || f.has('STRICTENC')) && !isValidDerSig(sigBytes)) fail('non-DER signature');
       if (f.has('LOW_S') && !isLowDerSig(sigBytes)) fail('high-S signature');
@@ -355,15 +369,6 @@ export class ScriptInterpreter {
     const sig = parseDerSignature(sigBytes.subarray(0, sigBytes.length - 1));
     const pub = parsePubkey(pubBytes);
     if (!sig || !pub) return false;
-    // scriptCode is truncated to start after the last executed OP_CODESEPARATOR
-    let scriptCode = ctx.codeSepOffset ? ctx.scriptCode.slice(ctx.codeSepOffset * 2) : ctx.scriptCode;
-    // Legacy only: the signature push is deleted from scriptCode before hashing
-    // (CHECKMULTISIG deletes every signature up front and sets _sigsDeleted).
-    if (ctx.sigVersion !== 'witnessV0' && !ctx._sigsDeleted) {
-      const { script, found } = findAndDelete(hexToBytes(scriptCode), pushEncode(sigBytes));
-      if (found && f?.has('CONST_SCRIPTCODE')) fail('SIG_FINDANDDELETE');
-      if (found) scriptCode = bytesToHex(script);
-    }
     const hash = ctx.sigVersion === 'witnessV0'
       ? this.sighashWitnessV0(ctx.tx, ctx.inIndex, scriptCode, ctx.amount, hashType)
       : this.sighashLegacy(ctx.tx, ctx.inIndex, scriptCode, hashType);
@@ -391,7 +396,7 @@ export class ScriptInterpreter {
       // OP_CODESEPARATOR (Core's pbegincodehash). Only updated when executing, so
       // a separator inside an untaken IF branch has no effect.
       OP_CODESEPARATOR: (s, ctx, exec, op) => {
-        if (ctx.sigVersion !== 'witnessV0' && ctx.flags?.has('CONST_SCRIPTCODE')) fail('OP_CODESEPARATOR under CONST_SCRIPTCODE');
+        if (isLegacy(ctx.sigVersion) && ctx.flags?.has('CONST_SCRIPTCODE')) fail('OP_CODESEPARATOR under CONST_SCRIPTCODE');
         ctx.codeSepOffset = op.at + 1;
       },
       OP_IF: (s, ctx, exec, _, executing) => {
@@ -556,7 +561,7 @@ export class ScriptInterpreter {
     // not-enough-keys early-exit, so a later invalid key/sig may never be
     // reached. (No reverse: matching is order-preserving for valid cases.)
     let sigCtx = ctx;
-    if (ctx.sigVersion !== 'witnessV0') {
+    if (isLegacy(ctx.sigVersion)) {
       // Legacy: every signature is FindAndDelete'd from scriptCode before any is checked
       let code = hexToBytes(ctx.codeSepOffset ? ctx.scriptCode.slice(ctx.codeSepOffset * 2) : ctx.scriptCode);
       for (const sg of sigs) {
