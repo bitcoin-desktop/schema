@@ -1,5 +1,7 @@
 {
-  "@context": { "knots": "https://bitcoinknots.org/ns#" },
+  "@context": {
+    "knots": "https://bitcoinknots.org/ns#"
+  },
   "@id": "knots:blake2b-overlay",
   "comment": "Bitcoin Knots BLAKE2b hardfork (v29.4.1.knots20260508, PRs 359/385): a 164-byte v2 block header selected by the top bit of version, a new proof-of-work hash, and two chains forking from Bitcoin history. Additive overlay: nothing in the base model is redefined.",
   "@graph": [
@@ -11,22 +13,96 @@
       "comment": "The 164-byte header used from the BLAKE2b fork height. The first 80 bytes keep the classic layout (version with bit 31 set; the wire time may be offset). Proof of work is the BLAKE2b construction over a commitment tree of these fields, not SHA256d of the bytes.",
       "wireSize": 164,
       "fields": [
-        { "property": "btc:version", "label": "version", "comment": "Raw wire version: bit 31 set marks a v2 header; the low bits carry the usual version.", "wireType": "u32le" },
-        { "property": "btc:prevBlockHash", "label": "prevBlockHash", "wireType": "hash256" },
-        { "property": "btc:merkleRoot", "label": "merkleRoot", "wireType": "hash256" },
-        { "property": "knots:timeOnWire", "label": "timeOnWire", "comment": "Block time as serialized. The consensus time is timeOnWire + timeOffset when flags bit 2 is set.", "wireType": "u32le" },
-        { "property": "btc:bits", "label": "bits", "wireType": "u32le" },
-        { "property": "btc:nonce", "label": "nonce", "wireType": "u32le" },
-        { "property": "knots:nonce2", "label": "nonce2", "wireType": "u32le" },
-        { "property": "knots:nonce3", "label": "nonce3", "wireType": "u32le" },
-        { "property": "knots:extranonce", "label": "extranonce", "comment": "128-bit extranonce, wire order (bitcoind's RPC shows it byte-reversed).", "wireType": "bytes", "wireSize": 16 },
-        { "property": "knots:timeOffset", "label": "timeOffset", "wireType": "u32le" },
-        { "property": "knots:txCount", "label": "txCount", "comment": "Committed transaction count; must equal the block's transaction count.", "wireType": "u16le" },
-        { "property": "knots:flags", "label": "flags", "comment": "Bits 0-1: ASIC layout profile; bit 2: time offset in use; bits 6-7 reserved for future hardforks (must be 0).", "wireType": "u8" },
-        { "property": "knots:xorKeyMaskClearBits", "label": "xorKeyMaskClearBits", "wireType": "u8" },
-        { "property": "knots:xorKey", "label": "xorKey", "comment": "128-bit PoW XOR key, wire order.", "wireType": "bytes", "wireSize": 16 },
-        { "property": "knots:height", "label": "height", "comment": "Committed height; must equal the previous header's height + 1.", "wireType": "i32le" },
-        { "property": "knots:mmRhs", "label": "mmRhs", "comment": "Merge-mining hook right-hand side (reserved; all zeros so far).", "wireType": "hash256" }
+        {
+          "property": "btc:version",
+          "label": "version",
+          "comment": "Raw wire version: bit 31 set marks a v2 header; the low bits carry the usual version.",
+          "wireType": "u32le"
+        },
+        {
+          "property": "btc:prevBlockHash",
+          "label": "prevBlockHash",
+          "wireType": "hash256"
+        },
+        {
+          "property": "btc:merkleRoot",
+          "label": "merkleRoot",
+          "wireType": "hash256"
+        },
+        {
+          "property": "knots:timeOnWire",
+          "label": "timeOnWire",
+          "comment": "Block time as serialized. The consensus time is timeOnWire + timeOffset when flags bit 2 is set.",
+          "wireType": "u32le"
+        },
+        {
+          "property": "btc:bits",
+          "label": "bits",
+          "wireType": "u32le"
+        },
+        {
+          "property": "btc:nonce",
+          "label": "nonce",
+          "wireType": "u32le"
+        },
+        {
+          "property": "knots:nonce2",
+          "label": "nonce2",
+          "wireType": "u32le"
+        },
+        {
+          "property": "knots:nonce3",
+          "label": "nonce3",
+          "wireType": "u32le"
+        },
+        {
+          "property": "knots:extranonce",
+          "label": "extranonce",
+          "comment": "128-bit extranonce, wire order (bitcoind's RPC shows it byte-reversed).",
+          "wireType": "bytes",
+          "wireSize": 16
+        },
+        {
+          "property": "knots:timeOffset",
+          "label": "timeOffset",
+          "wireType": "u32le"
+        },
+        {
+          "property": "knots:txCount",
+          "label": "txCount",
+          "comment": "Committed transaction count; must equal the block's transaction count.",
+          "wireType": "u16le"
+        },
+        {
+          "property": "knots:flags",
+          "label": "flags",
+          "comment": "Bits 0-1: ASIC layout profile; bit 2: time offset in use; bits 6-7 reserved for future hardforks (must be 0).",
+          "wireType": "u8"
+        },
+        {
+          "property": "knots:xorKeyMaskClearBits",
+          "label": "xorKeyMaskClearBits",
+          "wireType": "u8"
+        },
+        {
+          "property": "knots:xorKey",
+          "label": "xorKey",
+          "comment": "128-bit PoW XOR key, wire order.",
+          "wireType": "bytes",
+          "wireSize": 16
+        },
+        {
+          "property": "knots:height",
+          "label": "height",
+          "comment": "Committed height; must equal the previous header's height + 1.",
+          "wireType": "i32le"
+        },
+        {
+          "property": "knots:mmRhs",
+          "label": "mmRhs",
+          "comment": "Merge-mining hook right-hand side (reserved; all zeros so far).",
+          "wireType": "hash256"
+        }
       ]
     },
     {
@@ -37,11 +113,24 @@
       "name": "testnet4-blake2b",
       "comment": "Bitcoin Knots' BLAKE2b fork of testnet4: shares Core's testnet4 history through 150307, then v2 headers and BLAKE2b proof of work from 150308 (2026-08-30). Keeps testnet4's 20-minute minimum-difficulty exception.",
       "powHash": "knots:blake2b-v2",
-      "structVariants": { "btc:BlockHeader": [ { "when": { "field": "version", "bit": 31 }, "struct": "knots:BlockHeaderV2" } ] },
+      "structVariants": {
+        "btc:BlockHeader": [
+          {
+            "when": {
+              "field": "version",
+              "bit": 31
+            },
+            "struct": "knots:BlockHeaderV2"
+          }
+        ]
+      },
       "blake2bHeight": 150308,
       "blake2bTargetShift": 20,
       "rdtsExpiryTime": 1791903600,
-      "lastSharedBlock": { "height": 150307, "hash": "000000000017ec2251d81c8d2ca401c713e98e85196c7f660a4088a7ca57b1cc" },
+      "lastSharedBlock": {
+        "height": 150307,
+        "hash": "000000000017ec2251d81c8d2ca401c713e98e85196c7f660a4088a7ca57b1cc"
+      },
       "forkBlockHash": "000000000000b9d1b7e1bb0e77215ee92c6ef7ec8f4473e23908380649e779b6"
     },
     {
@@ -52,11 +141,88 @@
       "name": "mainnet-blake2b",
       "comment": "Bitcoin Knots' BLAKE2b hardfork chain: shares Bitcoin's history through 961631, eight Knots-only SHA256d blocks 961632-961639, then v2 headers and BLAKE2b proof of work from 961640 (2026-08-30).",
       "powHash": "knots:blake2b-v2",
-      "structVariants": { "btc:BlockHeader": [ { "when": { "field": "version", "bit": 31 }, "struct": "knots:BlockHeaderV2" } ] },
+      "structVariants": {
+        "btc:BlockHeader": [
+          {
+            "when": {
+              "field": "version",
+              "bit": 31
+            },
+            "struct": "knots:BlockHeaderV2"
+          }
+        ]
+      },
       "blake2bHeight": 961640,
       "blake2bTargetShift": 22,
       "blake2bHeadline": "8-30 NYPost Deride And Conquer",
-      "forkBlockHash": "0000000000000050c1e5f69672f459293be14f46e5a494e7a8c8541396f18eeb"
+      "forkBlockHash": "0000000000000050c1e5f69672f459293be14f46e5a494e7a8c8541396f18eeb",
+      "rdtsExpiryTime": 1819756800
+    },
+    {
+      "@id": "knots:rule-header-v1-until-fork",
+      "@type": "ValidationRule",
+      "ruleSet": "btc:HeaderRules",
+      "label": "v1-until-fork",
+      "errorCode": "bad-version-sha256d",
+      "comment": "A v2 (BLAKE2b) header may only commit to a height at or after the fork height; before it, blocks are SHA256d v1 headers.",
+      "check": "!isV2(header) || header.height >= blake2bHeight"
+    },
+    {
+      "@id": "knots:rule-header-v2-from-fork",
+      "@type": "ValidationRule",
+      "ruleSet": "btc:HeaderRules",
+      "label": "v2-from-fork",
+      "errorCode": "bad-version-blake2b",
+      "comment": "From the fork height every header must be v2 with BLAKE2b proof of work.",
+      "check": "height < blake2bHeight || isV2(header)",
+      "activationParam": "blake2bHeight"
+    },
+    {
+      "@id": "knots:rule-header-height",
+      "@type": "ValidationRule",
+      "ruleSet": "btc:HeaderRules",
+      "label": "header-height",
+      "errorCode": "bad-header-height",
+      "comment": "The height committed in a v2 header must equal the block's chain height (the previous block's height + 1). v1 headers commit no height and pass.",
+      "check": "!isV2(header) || header.height === height",
+      "activationParam": "blake2bHeight"
+    },
+    {
+      "@id": "knots:rule-header-flags-reserved",
+      "@type": "ValidationRule",
+      "ruleSet": "btc:HeaderRules",
+      "label": "flags-reserved",
+      "errorCode": "bad-flags-highbits",
+      "comment": "The top two bits of a v2 header's flags are reserved for future hardforks and must be zero.",
+      "check": "!isV2(header) || (header.flags & 0xc0) === 0",
+      "activationParam": "blake2bHeight"
+    },
+    {
+      "@id": "knots:rule-block-txcount",
+      "@type": "ValidationRule",
+      "ruleSet": "btc:BlockRules",
+      "label": "txcount",
+      "errorCode": "bad-txnlist-size",
+      "comment": "The transaction count committed in a v2 header must equal the number of transactions in the block.",
+      "check": "!isV2(block.header) || block.header.txCount === block.transactions.length"
+    },
+    {
+      "@id": "knots:rule-block-headline",
+      "@type": "ValidationRule",
+      "ruleSet": "btc:BlockRules",
+      "label": "headline",
+      "errorCode": "bad-headline",
+      "comment": "The fork block's coinbase scriptSig must contain the chain's proof-of-time headline (mainnet: '8-30 NYPost Deride And Conquer'; testnet4 sets none).",
+      "check": "block.header.height !== blake2bHeight || coinbase.scriptSig includes blake2bHeadline"
+    },
+    {
+      "@id": "knots:rule-blockctx-weight-rdts",
+      "@type": "ValidationRule",
+      "ruleSet": "btc:BlockContextRules",
+      "label": "weight-rdts",
+      "errorCode": "bad-blk-weight-reduced_data",
+      "comment": "While the ReducedData temporary softfork is active (from the fork height until the parent's median-time-past reaches rdtsExpiryTime) block weight is capped at 800,000.",
+      "check": "!rdtsActiveAt(height, mtpPrev) || weight(block) <= 800000"
     }
   ]
 }

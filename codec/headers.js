@@ -125,9 +125,15 @@ export class HeaderEngine {
 
   // ---- ruleset execution ----
 
+  // Overlay rules bind their checks here, keyed by rule @id.
+  registerChecks(map) { Object.assign(this.checks, map); }
+
   validateHeader(ctx) {
     const results = this.ruleSet.rules.map((rule) => {
-      const outcome = this.checks[rule['@id']](ctx);
+      const check = this.checks[rule['@id']];
+      if (!check) throw new Error(`no check registered for ${rule['@id']}`);
+      const gated = rule.activationParam && ctx.height != null && ctx.height < this.params[rule.activationParam];
+      const outcome = gated ? null : check(ctx);
       return {
         rule: rule['@id'],
         label: rule.label,

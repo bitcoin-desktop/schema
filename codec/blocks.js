@@ -236,14 +236,23 @@ export class BlockEngine {
 
   // ---- ruleset execution ----
 
+  // Overlay rules bind their checks here, by phase: {transaction, block, blockContext}.
+  registerChecks({ transaction = {}, block = {}, blockContext = {} } = {}) {
+    Object.assign(this.txChecks, transaction);
+    Object.assign(this.blockChecks, block);
+    Object.assign(this.contextChecks, blockContext);
+  }
+
   #run(ruleSet, checks, ctx) {
     const results = ruleSet.rules.map((rule) => {
       let outcome;
+      const check = checks[rule['@id']];
+      if (!check) throw new Error(`no check registered for ${rule['@id']}`);
       if (rule.activationParam && ctx.height != null
           && ctx.height < this.params[rule.activationParam]) {
         outcome = null; // not yet activated at this height
       } else {
-        outcome = checks[rule['@id']](ctx);
+        outcome = check(ctx);
       }
       return {
         rule: rule['@id'],
