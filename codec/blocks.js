@@ -145,6 +145,8 @@ export class BlockEngine {
 
   static fromSchemas(codec, chainSchema, validateSchema, scriptSchema = null, network = 'btc:mainnet') {
     const params = chainSchema['@graph'].find((n) => n['@id'] === network);
+    if (!params) throw new Error(`unknown network: ${network}`);
+    codec.setChainParams?.(params); // variants + PoW hash follow the chain
     const set = (phase) => validateSchema['@graph'].find((n) => n['@type'] === 'RuleSet' && n.phase === phase);
     const scriptEngine = scriptSchema
       ? ScriptEngine.fromSchemas(scriptSchema, chainSchema, network)
@@ -182,7 +184,7 @@ export class BlockEngine {
     const total = this.codec.encode('Block', block).length;
     const legacy = block.transactions.reduce(
       (s, tx) => s + this.codec.encode('Transaction', tx, { legacy: true }).length,
-      80 + this.#varintSize(block.transactions.length));
+      this.codec.encode('BlockHeader', block.header).length + this.#varintSize(block.transactions.length));
     return 3 * legacy + total;
   }
 
