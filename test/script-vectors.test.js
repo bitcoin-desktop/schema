@@ -29,6 +29,7 @@ import { ScriptEngine } from '../codec/script.js';
 import { ScriptInterpreter, compactSize } from '../codec/interpreter.js';
 import { taggedHash, hexToBytes, bytesToHex } from '../codec/hash.js';
 import { tapOutputKey, checkTapTweak } from '../codec/secp256k1.js';
+import { makeParseScript } from './helpers/core-asm.js';
 
 const load = async (p) => JSON.parse(await readFile(new URL(p, import.meta.url), 'utf8'));
 const codec = new Codec(await load('../schema/core.jsonld'));
@@ -39,47 +40,8 @@ const limits = scriptSchema['@graph'].find((n) => n['@id'] === 'btc:scriptLimits
 const interp = new ScriptInterpreter(codec, scriptEngine, limits);
 const cases = await load('vectors/script_tests.json');
 
-const NAME2CODE = new Map();
-for (const m of scriptSchema['@graph'].find((n) => n['@id'] === 'btc:Opcode').members) {
-  NAME2CODE.set(m.name, m.code); NAME2CODE.set(m.name.replace(/^OP_/, ''), m.code);
-}
+const parseScript = makeParseScript(scriptSchema);
 
-const hx = (b) => [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
-function scriptnum(n) { // CScriptNum serialize (BigInt)
-  if (n === 0n) return [];
-  const neg = n < 0n; let abs = neg ? -n : n; const out = [];
-  while (abs > 0n) { out.push(Number(abs & 0xffn)); abs >>= 8n; }
-  if (out[out.length - 1] & 0x80) out.push(neg ? 0x80 : 0x00);
-  else if (neg) out[out.length - 1] |= 0x80;
-  return out;
-}
-function pushData(bytes) {
-  const n = bytes.length;
-  if (n < 76) return [n, ...bytes];
-  if (n <= 0xff) return [76, n, ...bytes];
-  if (n <= 0xffff) return [77, n & 0xff, n >> 8, ...bytes];
-  return [78, n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >>> 24) & 0xff, ...bytes];
-}
-// Core's ParseScript: whitespace-separated numbers, 0x-raw bytes, 'strings', opcode names.
-function parseScript(s) {
-  const out = [];
-  for (const w of s.split(/\s+/).filter(Boolean)) {
-    if (/^-?\d+$/.test(w)) {
-      const n = BigInt(w);
-      if (n === 0n) out.push(0x00);
-      else if (n === -1n) out.push(0x4f);
-      else if (n >= 1n && n <= 16n) out.push(0x50 + Number(n));
-      else out.push(...pushData(scriptnum(n)));
-    } else if (/^0x[0-9a-fA-F]*$/.test(w)) {
-      const h = w.slice(2);
-      for (let i = 0; i < h.length; i += 2) out.push(parseInt(h.slice(i, i + 2), 16));
-    } else if (/^'.*'$/.test(w)) {
-      out.push(...pushData([...w.slice(1, -1)].map((c) => c.charCodeAt(0))));
-    } else if (NAME2CODE.has(w)) { out.push(NAME2CODE.get(w)); }
-    else throw new Error('unknown token: ' + w);
-  }
-  return hx(Uint8Array.from(out));
-}
 // Core's tapscript cases carry "#SCRIPT# <asm>" (parse it) and "#CONTROLBLOCK#"
 // (auto-generate: single leaf, version 0xc0, internal key = pubkey of Core's
 // key0, the secret 0x…01, i.e. G) in the witness, and "0x51 0x20 #TAPROOTOUTPUT#"
