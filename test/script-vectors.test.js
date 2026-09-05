@@ -61,11 +61,6 @@ function buildWitness(elements) {
   }
   return { witness: out, taprootOutput: output ? '5120' + bytesToHex(output) : null };
 }
-// witness structure / malleability validation (BIP 141) is not modelled here
-const WITNESS_STRUCT = new Set([
-  'WITNESS_UNEXPECTED', 'WITNESS_MALLEATED', 'WITNESS_MALLEATED_P2SH',
-  'WITNESS_PROGRAM_WRONG_LENGTH', 'WITNESS_PROGRAM_WITNESS_EMPTY',
-  'WITNESS_PROGRAM_MISMATCH', 'DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM']);
 
 // Core's CreateCrediting/SpendingTransaction: the signatures in the corpus were
 // produced against exactly this dummy spend tx, so reproducing it lets real
@@ -88,7 +83,7 @@ function dummySpend(scriptSigHex, scriptPubKeyHex, amount, witness) {
 
 test('Bitcoin Core script_tests.json: every case matches our interpreter (bare, P2SH, witness)', () => {
   let ran = 0, matched = 0;
-  const skip = { witnessStruct: 0, unmodeled: 0, unparseable: 0 };
+  const skip = { unmodeled: 0, unparseable: 0 };
   const mismatches = [];
 
   for (const t of cases) {
@@ -100,7 +95,6 @@ test('Bitcoin Core script_tests.json: every case matches our interpreter (bare, 
       [, sig, spk, flags, expected] = t;
     } else { [sig, spk, flags, expected] = t; }
 
-    if (WITNESS_STRUCT.has(expected)) { skip.witnessStruct++; continue; }
     let sigHex, spkHex;
     try {
       sigHex = parseScript(sig);

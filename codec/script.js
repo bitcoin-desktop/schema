@@ -138,7 +138,7 @@ export class ScriptEngine {
           && keys.every((k) => k.data && (k.data.length === 66 || k.data.length === 130));
       }
       case 'witness-unknown': {
-        if (ops.length !== 2 || !ops[1].data) return false;
+        if (ops.length !== 2 || !ops[1].data || ops[1].code > 0x4b) return false;
         const v = ops[0].code;
         const len = ops[1].data.length / 2;
         return v >= 0x52 && v <= 0x60 && len >= 2 && len <= 40;

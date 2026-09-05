@@ -7,7 +7,10 @@
 // wrapped segwit), p2wpkh, p2wsh — with legacy and BIP 143 sighash and
 // real ECDSA verification. OP_CODESEPARATOR truncates the legacy/segwit-v0
 // sighash scriptCode at the last executed separator (Core's pbegincodehash).
-// NOT supported (verifyInput returns ok:null): taproot (Schnorr/BIP 341).
+// verifyInput follows Core's VerifyScript, including the BIP 141 structural
+// rules (witness program shape and length, malleated scriptSig, unexpected
+// witness, 520-byte witness elements). Unknown witness versions return
+// ok:null rather than Core's "success", by design.
 // Legacy (pre-segwit) sighash follows Core exactly: every OP_CODESEPARATOR is
 // dropped from the serialized scriptCode, and CHECKSIG/CHECKMULTISIG first
 // FindAndDelete the signature push(es) from it (SCRIPT_VERIFY_CONST_SCRIPTCODE
@@ -57,6 +60,15 @@ const truthy = (bytes) => {
 };
 const boolBytes = (b) => (b ? Uint8Array.of(1) : new Uint8Array(0));
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+// BIP 141 IsWitnessProgram: 4..42 bytes, OP_0 or OP_1..OP_16, then a single
+// direct push of exactly the rest. A PUSHDATA-encoded program is not a program.
+function witnessProgram(scriptHex) {
+  const b = hexToBytes(scriptHex);
+  if (b.length < 4 || b.length > 42) return null;
+  if (b[0] !== 0x00 && (b[0] < 0x51 || b[0] > 0x60)) return null;
+  if (b[1] + 2 !== b.length) return null;
+  return { version: b[0] === 0x00 ? 0 : b[0] - 0x50, program: bytesToHex(b.subarray(2)) };
+}
 // Core's SigVersion::BASE: the pre-segwit sighash rules (callers that omit
 // sigVersion get legacy semantics throughout this file).
 const isLegacy = (sigVersion) => sigVersion !== 'witnessV0' && sigVersion !== 'tapscript';
@@ -660,44 +672,44 @@ export class ScriptInterpreter {
       || (code >= 149 && code <= 153) || (code >= 187 && code <= 254);
   }
 
-  #runPair(scriptSigHex, scriptPubKeyHex, ctx) {
-    const stack = [];
-    let r = this.execute(scriptSigHex, stack, { ...ctx, scriptCode: scriptSigHex });
-    if (!r.ok) return { r, stack };
-    r = this.execute(scriptPubKeyHex, stack, { ...ctx, scriptCode: scriptPubKeyHex });
-    if (!r.ok) return { r, stack };
-    if (!stack.length || !truthy(stack[stack.length - 1])) {
-      return { r: { ok: false, error: 'script evaluated false' }, stack };
+
+  // Core's VerifyWitnessProgram. `isP2SH` matters for v1: a P2SH-wrapped
+  // 32-byte v1 program is not taproot (BIP 341) and falls through as unknown.
+  #verifyWitnessProgram(tx, inIndex, version, programHex, amount, flags, isP2SH, allPrevouts) {
+    const witness = (tx.witness?.[inIndex] ?? []).map(hexToBytes);
+    if (version === 0) {
+      if (programHex.length === 64) { // BIP 141 P2WSH
+        if (!witness.length) return { ok: false, error: 'WITNESS_PROGRAM_WITNESS_EMPTY' };
+        const witnessScript = witness.pop();
+        if (bytesToHex(sha256(witnessScript)) !== programHex) return { ok: false, error: 'WITNESS_PROGRAM_MISMATCH' };
+        return this.#executeWitnessScript(witness, bytesToHex(witnessScript), tx, inIndex, amount, flags);
+      }
+      if (programHex.length === 40) { // BIP 141 P2WPKH
+        if (witness.length !== 2) return { ok: false, error: 'WITNESS_PROGRAM_MISMATCH' };
+        return this.#executeWitnessScript(witness, '76a914' + programHex + '88ac', tx, inIndex, amount, flags);
+      }
+      return { ok: false, error: 'WITNESS_PROGRAM_WRONG_LENGTH' };
     }
-    return { r: { ok: true }, stack };
+    if (version === 1 && programHex.length === 64 && !isP2SH) { // BIP 341 taproot
+      if (flags && !flags.has('TAPROOT')) return { ok: true }; // not enabled: anyone-can-spend, as in Core
+      if (!allPrevouts) return { ok: null, reason: 'taproot needs every input prevout resolved' };
+      return this.#verifyTaproot(tx, inIndex, allPrevouts, flags);
+    }
+    if (flags?.has('DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM')) return { ok: false, error: 'DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM' };
+    // Core returns success here (future soft-fork compatibility); we decline
+    // to vouch for rules we do not know rather than claim they passed.
+    return { ok: null, reason: 'unknown witness version' };
   }
 
-  #verifyWitnessProgram(tx, inIndex, version, programHex, amount, flags = null) {
-    const witness = (tx.witness?.[inIndex] ?? []).map(hexToBytes);
-    if (version !== 0) return { ok: null, reason: 'unsupported witness version' };
-    if (programHex.length === 40) { // p2wpkh
-      if (witness.length !== 2) return { ok: false, error: 'p2wpkh witness size' };
-      const scriptCode = '76a914' + programHex + '88ac';
-      const stack = witness.map((w) => Uint8Array.from(w));
-      const r = this.execute(scriptCode, stack,
-        { tx, inIndex, amount, sigVersion: 'witnessV0', scriptCode, flags });
-      if (!r.ok) return r;
-      return (stack.length === 1 && truthy(stack[0]))
-        ? { ok: true } : { ok: false, error: 'p2wpkh evaluated false' };
-    }
-    // p2wsh
-    if (!witness.length) return { ok: false, error: 'empty p2wsh witness' };
-    const witnessScript = witness[witness.length - 1];
-    if (bytesToHex(sha256(witnessScript)) !== programHex) {
-      return { ok: false, error: 'p2wsh script hash mismatch' };
-    }
-    const scriptHex = bytesToHex(witnessScript);
-    const stack = witness.slice(0, -1);
-    const r = this.execute(scriptHex, stack,
-      { tx, inIndex, amount, sigVersion: 'witnessV0', scriptCode: scriptHex, flags });
+  // Core's ExecuteWitnessScript for witness v0: 520-byte cap on every initial
+  // stack element, evaluate, exactly one truthy element must remain.
+  #executeWitnessScript(stack, scriptHex, tx, inIndex, amount, flags) {
+    for (const el of stack) if (el.length > this.limits.maxScriptElementSize) return { ok: false, error: 'PUSH_SIZE' };
+    const st = stack.map((w) => Uint8Array.from(w));
+    const r = this.execute(scriptHex, st, { tx, inIndex, amount, sigVersion: 'witnessV0', scriptCode: scriptHex, flags });
     if (!r.ok) return r;
-    return (stack.length === 1 && truthy(stack[0]))
-      ? { ok: true } : { ok: false, error: 'p2wsh evaluated false' };
+    if (st.length !== 1) return { ok: false, error: 'CLEANSTACK' };
+    return truthy(st[0]) ? { ok: true } : { ok: false, error: 'EVAL_FALSE' };
   }
 
   // BIP 341 taproot spend verification: key path (one Schnorr signature
@@ -772,65 +784,60 @@ export class ScriptInterpreter {
   // BIP 341 sighash commits to all of them. Returns {ok: true|false|null};
   // null = honestly unverifiable (missing prevouts / future versions).
   verifyInput(tx, inIndex, prevout, allPrevouts = null, flags = null) {
+    // Core's VerifyScript, in its order: scriptSig then scriptPubKey on one
+    // stack; bare witness program; P2SH (redeem script, then a wrapped witness
+    // program); CLEANSTACK; unexpected witness. P2SH and segwit are only active
+    // under their flags; legacy callers (flags=null) keep both on, and a P2SH-
+    // or witness-shaped scriptPubKey runs as a plain script when they are off.
     const spk = prevout.scriptPubKey;
-    const type = this.scriptEngine.classify(spk).type;
+    let type = this.scriptEngine.classify(spk).type;
     const input = tx.inputs[inIndex];
     const ctx = { tx, inIndex, amount: prevout.value, sigVersion: 'legacy', flags };
-    // P2SH and segwit are only active under their flags; legacy callers
-    // (flags=null) keep both on. When off, a P2SH- or witness-shaped
-    // scriptPubKey runs as a plain script.
     const p2shActive = flags === null || flags.has('P2SH');
     const witnessActive = flags === null || flags.has('WITNESS');
+    const pushOnly = this.scriptEngine.parse(input.scriptSig).every((o) => o.code <= 0x60);
+    if (flags?.has('SIGPUSHONLY') && !pushOnly) return { ok: false, error: 'SIG_PUSHONLY', type };
 
-    if (witnessActive && type === 'p2tr') {
-      if (!allPrevouts) return { ok: null, reason: 'taproot needs every input prevout resolved', type };
-      return { ...this.#verifyTaproot(tx, inIndex, allPrevouts, flags), type };
-    }
-    if (witnessActive && type === 'witness-unknown') {
-      if (flags?.has('DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM')) {
-        return { ok: false, error: 'upgradable witness program', type };
-      }
-      return { ok: null, reason: 'unknown witness version', type };
-    }
-    if (witnessActive && (type === 'p2wpkh' || type === 'p2wsh')) {
-      const program = this.scriptEngine.parse(spk)[1].data;
-      return { ...this.#verifyWitnessProgram(tx, inIndex, 0, program, prevout.value, flags), type };
-    }
-
-    const isP2SH = type === 'p2sh' && p2shActive;
-    // P2SH requires a push-only scriptSig (always when active, and SIGPUSHONLY)
-    if ((isP2SH || flags?.has('SIGPUSHONLY'))
-        && !this.scriptEngine.parse(input.scriptSig).every((o) => o.code <= 0x60)) {
-      return { ok: false, error: 'scriptSig not push-only', type };
-    }
-    const { r, stack } = this.#runPair(input.scriptSig, spk, ctx);
+    let stack = [];
+    let r = this.execute(input.scriptSig, stack, { ...ctx, scriptCode: input.scriptSig });
     if (!r.ok) return { ...r, type };
-    if (!isP2SH) { // bare script (incl. a P2SH-shaped spk with P2SH inactive)
-      if (flags?.has('CLEANSTACK') && stack.length !== 1) return { ok: false, error: 'CLEANSTACK', type };
-      return { ok: true, type };
-    }
+    const stackCopy = p2shActive ? stack.slice() : null;
+    r = this.execute(spk, stack, { ...ctx, scriptCode: spk });
+    if (!r.ok) return { ...r, type };
+    if (!stack.length || !truthy(stack[stack.length - 1])) return { ok: false, error: 'EVAL_FALSE', type };
 
-    // p2sh: re-run the scriptSig alone to recover the pre-evaluation stack,
-    // pop the redeem script, and evaluate it
-    const sigStack = [];
-    this.execute(input.scriptSig, sigStack, { ...ctx });
-    if (!sigStack.length) return { ok: false, error: 'empty p2sh stack', type };
-    const redeem = sigStack.pop();
-    const redeemHex = bytesToHex(redeem);
-    const redeemType = this.scriptEngine.classify(redeemHex).type;
-    if (witnessActive && (redeemType === 'p2wpkh' || redeemType === 'p2wsh')) { // wrapped segwit
-      const program = this.scriptEngine.parse(redeemHex)[1].data;
-      return { ...this.#verifyWitnessProgram(tx, inIndex, 0, program, prevout.value, flags), type: `p2sh-${redeemType}` };
+    let hadWitness = false, witnessResult = {};
+    const bare = witnessActive ? witnessProgram(spk) : null;
+    if (bare) {
+      hadWitness = true;
+      if (input.scriptSig.length) return { ok: false, error: 'WITNESS_MALLEATED', type };
+      const w = this.#verifyWitnessProgram(tx, inIndex, bare.version, bare.program, prevout.value, flags, false, allPrevouts);
+      if (w.ok !== true) return { ...w, type };
+      witnessResult = w; // keeps e.g. the taproot `path`
+      stack = [Uint8Array.of(1)]; // Core: stack.resize(1) — the witness path bypasses CLEANSTACK
+    } else if (p2shActive && type === 'p2sh') {
+      if (!pushOnly) return { ok: false, error: 'SIG_PUSHONLY', type };
+      stack = stackCopy; // the stack as scriptSig left it; its top is the redeem script
+      const redeem = stack.pop();
+      const redeemHex = bytesToHex(redeem);
+      const redeemType = this.scriptEngine.classify(redeemHex).type;
+      type = `p2sh-${redeemType}`;
+      r = this.execute(redeemHex, stack, { ...ctx, scriptCode: redeemHex });
+      if (!r.ok) return { ...r, type };
+      if (!stack.length || !truthy(stack[stack.length - 1])) return { ok: false, error: 'EVAL_FALSE', type };
+      const wrapped = witnessActive ? witnessProgram(redeemHex) : null;
+      if (wrapped) {
+        hadWitness = true;
+        // the scriptSig must be exactly one push of the redeem script
+        if (input.scriptSig !== bytesToHex(pushEncode(redeem))) return { ok: false, error: 'WITNESS_MALLEATED_P2SH', type };
+        const w = this.#verifyWitnessProgram(tx, inIndex, wrapped.version, wrapped.program, prevout.value, flags, true, allPrevouts);
+        if (w.ok !== true) return { ...w, type };
+        witnessResult = w;
+        stack = [Uint8Array.of(1)];
+      }
     }
-    if (witnessActive && (redeemType === 'p2tr' || redeemType === 'witness-unknown')) {
-      return { ok: null, reason: 'wrapped future witness version', type };
-    }
-    const r2 = this.execute(redeemHex, sigStack, { ...ctx, scriptCode: redeemHex });
-    if (!r2.ok) return { ...r2, type };
-    const top = sigStack.length && truthy(sigStack[sigStack.length - 1]);
-    const clean = !flags?.has('CLEANSTACK') || sigStack.length === 1;
-    return (top && clean)
-      ? { ok: true, type: `p2sh-${redeemType}` }
-      : { ok: false, error: 'redeem script evaluated false', type };
+    if (flags?.has('CLEANSTACK') && stack.length !== 1) return { ok: false, error: 'CLEANSTACK', type };
+    if (witnessActive && !hadWitness && (tx.witness?.[inIndex] ?? []).length) return { ok: false, error: 'WITNESS_UNEXPECTED', type };
+    return { ...witnessResult, ok: true, type };
   }
 }
