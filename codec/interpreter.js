@@ -8,9 +8,12 @@
 // real ECDSA verification. OP_CODESEPARATOR truncates the legacy/segwit-v0
 // sighash scriptCode at the last executed separator (Core's pbegincodehash).
 // NOT supported (verifyInput returns ok:null): taproot (Schnorr/BIP 341).
-// Known simplifications, accepted for now: signature pushes are not
-// FindAndDelete'd from legacy scriptCode, and the tapscript codeseparator
-// position (BIP 342) is not yet committed in the BIP 341 message.
+// Legacy (pre-segwit) sighash follows Core exactly: every OP_CODESEPARATOR is
+// dropped from the serialized scriptCode, and CHECKSIG/CHECKMULTISIG first
+// FindAndDelete the signature push(es) from it (SCRIPT_VERIFY_CONST_SCRIPTCODE
+// turns both into failures). Known simplification, accepted for now: the
+// tapscript codeseparator position (BIP 342) is not yet committed in the
+// BIP 341 message.
 
 import { sha256, dsha256, sha1, ripemd160, hash160, bytesToHex, hexToBytes, taggedHash } from './hash.js';
 import { parsePubkey, parseDerSignature, verifyEcdsa, verifySchnorr, checkTapTweak, N } from './secp256k1.js';
@@ -54,6 +57,59 @@ const truthy = (bytes) => {
 };
 const boolBytes = (b) => (b ? Uint8Array.of(1) : new Uint8Array(0));
 const eq = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+
+// ---- byte-level script walking, for the two legacy-sighash quirks ----
+// End offset of the op starting at `pos`, or -1 when the push is truncated
+// (Core's CScript::GetOp failing).
+function opEnd(bytes, pos) {
+  const op = bytes[pos];
+  let len = 0, hdr = 1;
+  if (op < 0x4c) len = op;
+  else if (op === 0x4c) { if (pos + 2 > bytes.length) return -1; len = bytes[pos + 1]; hdr = 2; }
+  else if (op === 0x4d) { if (pos + 3 > bytes.length) return -1; len = bytes[pos + 1] | (bytes[pos + 2] << 8); hdr = 3; }
+  else if (op === 0x4e) { if (pos + 5 > bytes.length) return -1; len = (bytes[pos + 1] | (bytes[pos + 2] << 8) | (bytes[pos + 3] << 16) | (bytes[pos + 4] << 24)) >>> 0; hdr = 5; }
+  const end = pos + hdr + len;
+  return end > bytes.length ? -1 : end;
+}
+// CScript() << vector: the push encoding Core uses for a signature element.
+function pushEncode(data) {
+  const n = data.length;
+  const head = n < 0x4c ? [n] : n <= 0xff ? [0x4c, n] : n <= 0xffff ? [0x4d, n & 0xff, n >> 8]
+    : [0x4e, n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >>> 24) & 0xff];
+  return Uint8Array.from([...head, ...data]);
+}
+// Core's FindAndDelete: at every opcode boundary, delete each consecutive
+// occurrence of `needle`; returns {script, found}.
+export function findAndDelete(script, needle) {
+  if (!needle.length) return { script, found: 0 };
+  const out = []; let found = 0, pc = 0, pc2 = 0;
+  do {
+    for (let i = pc2; i < pc; i++) out.push(script[i]);
+    while (script.length - pc >= needle.length && eq(script.subarray(pc, pc + needle.length), needle)) { pc += needle.length; found++; }
+    pc2 = pc;
+    if (pc >= script.length) break;
+    pc = opEnd(script, pc);
+  } while (pc !== -1);
+  if (!found) return { script, found: 0 };
+  for (let i = pc2; i < script.length; i++) out.push(script[i]);
+  return { script: Uint8Array.from(out), found };
+}
+// Core's CTransactionSignatureSerializer::SerializeScriptCode: the legacy
+// sighash commits to scriptCode with every OP_CODESEPARATOR removed. On a
+// malformed trailing push (GetOp fails) the remainder is emitted verbatim.
+// (Core also keeps the pre-strip length in the size prefix in that case; a
+// scriptCode ending in a truncated push cannot execute to completion, so the
+// resulting digest never decides validity and the difference is not modelled.)
+export function stripCodeSeparators(script) {
+  const out = []; let pc = 0;
+  while (pc < script.length) {
+    const end = opEnd(script, pc);
+    if (end === -1) { for (let i = pc; i < script.length; i++) out.push(script[i]); break; }
+    if (script[pc] !== 0xab) for (let i = pc; i < end; i++) out.push(script[i]);
+    pc = end;
+  }
+  return Uint8Array.from(out);
+}
 
 // Bitcoin CompactSize (1/3/5/9 bytes), matching the codec's varint writer.
 // Used for the script-length prefix in the BIP341 TapLeaf hash; tapscripts can
@@ -143,6 +199,7 @@ export class ScriptInterpreter {
   // ---- sighash ----
 
   sighashLegacy(tx, inIndex, scriptCodeHex, hashType) {
+    scriptCodeHex = bytesToHex(stripCodeSeparators(hexToBytes(scriptCodeHex)));
     const anyone = hashType & 0x80;
     const base = hashType & 0x1f;
     if (base === 3 && inIndex >= tx.outputs.length) {
@@ -299,7 +356,14 @@ export class ScriptInterpreter {
     const pub = parsePubkey(pubBytes);
     if (!sig || !pub) return false;
     // scriptCode is truncated to start after the last executed OP_CODESEPARATOR
-    const scriptCode = ctx.codeSepOffset ? ctx.scriptCode.slice(ctx.codeSepOffset * 2) : ctx.scriptCode;
+    let scriptCode = ctx.codeSepOffset ? ctx.scriptCode.slice(ctx.codeSepOffset * 2) : ctx.scriptCode;
+    // Legacy only: the signature push is deleted from scriptCode before hashing
+    // (CHECKMULTISIG deletes every signature up front and sets _sigsDeleted).
+    if (ctx.sigVersion !== 'witnessV0' && !ctx._sigsDeleted) {
+      const { script, found } = findAndDelete(hexToBytes(scriptCode), pushEncode(sigBytes));
+      if (found && f?.has('CONST_SCRIPTCODE')) fail('SIG_FINDANDDELETE');
+      if (found) scriptCode = bytesToHex(script);
+    }
     const hash = ctx.sigVersion === 'witnessV0'
       ? this.sighashWitnessV0(ctx.tx, ctx.inIndex, scriptCode, ctx.amount, hashType)
       : this.sighashLegacy(ctx.tx, ctx.inIndex, scriptCode, hashType);
@@ -326,7 +390,10 @@ export class ScriptInterpreter {
       // Legacy/segwit-v0: the sighash scriptCode begins after the last *executed*
       // OP_CODESEPARATOR (Core's pbegincodehash). Only updated when executing, so
       // a separator inside an untaken IF branch has no effect.
-      OP_CODESEPARATOR: (s, ctx, exec, op) => { ctx.codeSepOffset = op.at + 1; },
+      OP_CODESEPARATOR: (s, ctx, exec, op) => {
+        if (ctx.sigVersion !== 'witnessV0' && ctx.flags?.has('CONST_SCRIPTCODE')) fail('OP_CODESEPARATOR under CONST_SCRIPTCODE');
+        ctx.codeSepOffset = op.at + 1;
+      },
       OP_IF: (s, ctx, exec, _, executing) => {
         let f = false;
         if (executing) {
@@ -488,9 +555,20 @@ export class ScriptInterpreter {
     // exactly this order, checking the current pair's encoding before the
     // not-enough-keys early-exit, so a later invalid key/sig may never be
     // reached. (No reverse: matching is order-preserving for valid cases.)
+    let sigCtx = ctx;
+    if (ctx.sigVersion !== 'witnessV0') {
+      // Legacy: every signature is FindAndDelete'd from scriptCode before any is checked
+      let code = hexToBytes(ctx.codeSepOffset ? ctx.scriptCode.slice(ctx.codeSepOffset * 2) : ctx.scriptCode);
+      for (const sg of sigs) {
+        const { script, found } = findAndDelete(code, pushEncode(sg));
+        if (found && ctx.flags?.has('CONST_SCRIPTCODE')) fail('SIG_FINDANDDELETE');
+        code = script;
+      }
+      sigCtx = { ...ctx, scriptCode: bytesToHex(code), codeSepOffset: 0, _sigsDeleted: true };
+    }
     let isig = 0, ikey = 0, success = true;
     while (success && isig < sigs.length) {
-      if (this.#checkSig(sigs[isig], pubs[ikey], ctx)) isig++;
+      if (this.#checkSig(sigs[isig], pubs[ikey], sigCtx)) isig++;
       ikey++;
       if (sigs.length - isig > pubs.length - ikey) success = false;
     }
