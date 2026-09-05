@@ -19,7 +19,7 @@ import { Codec } from '../codec/codec.js';
 import { ScriptEngine } from '../codec/script.js';
 import { ScriptInterpreter } from '../codec/interpreter.js';
 import { BlockEngine, isCoinbase } from '../codec/blocks.js';
-import { bytesToHex, reverseHex } from '../codec/hash.js';
+import { reverseHex } from '../codec/hash.js';
 import { makeParseScript, ALL_FLAGS, parseFlags } from './helpers/core-asm.js';
 
 const load = async (p) => JSON.parse(await readFile(new URL(p, import.meta.url), 'utf8'));
@@ -68,13 +68,17 @@ function runCorpus(name, cases, expectValid) {
       // Core's CheckTransaction knows a coinbase when it sees one; tell validateTransaction.
       const structure = blocks.validateTransaction(tx, isCoinbase(tx)).ok;
       if (flagStr === 'BADTX') { ours = structure; why = 'BADTX'; }
-      else {
+      else if (!structure) {
+        // Core requires every non-BADTX vector to pass CheckTransaction; a structural
+        // failure here is a harness/engine problem, never the expected verdict.
+        ours = 'THROW:unexpected CheckTransaction failure';
+      } else {
         const flags = expectValid
           ? new Set(ALL_FLAGS.filter((f) => !parseFlags(flagStr).has(f)))
           : parseFlags(flagStr);
         const all = tx.inputs.map((inp) => prevouts.get(`${inp.prevout.txid}:${inp.prevout.vout}`) ?? null);
         if (all.some((p) => p == null)) throw new Error('prevout not in vector');
-        let verdict = structure;
+        let verdict = true;
         for (let i = 0; i < tx.inputs.length && verdict; i++) {
           const r = interp.verifyInput(tx, i, all[i], all, flags);
           if (r.ok === null) { verdict = null; why = `input ${i}: ${r.reason}`; break; }
