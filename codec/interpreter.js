@@ -814,7 +814,7 @@ export class ScriptInterpreter {
       const w = this.#verifyWitnessProgram(tx, inIndex, bare.version, bare.program, prevout.value, flags, false, allPrevouts);
       if (w.ok !== true) return { ...w, type };
       witnessResult = w; // keeps e.g. the taproot `path`
-      stack = [Uint8Array.of(1)]; // Core: stack.resize(1) — the witness path bypasses CLEANSTACK
+      stack = [Uint8Array.of(1)]; // Core's stack.resize(1): one element, so the CLEANSTACK check below passes
     } else if (p2shActive && type === 'p2sh') {
       if (!pushOnly) return { ok: false, error: 'SIG_PUSHONLY', type };
       stack = stackCopy; // the stack as scriptSig left it; its top is the redeem script
