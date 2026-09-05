@@ -12,10 +12,10 @@
 // and witness-program (p2wpkh/p2wsh) execution — all against Core's exact
 // dummy crediting/spending transaction so the vectors' real signatures verify
 // against the same sighash. P2SH and segwit activation are gated on their
-// flags. Skipped HONESTLY (and counted, never silently): the timelock opcodes
-// (need specific tx fields), and BIP 141 witness *structure/malleability*
-// validation (witness-unexpected/malleated/wrong-length, discourage-upgradable
-// witness program) — a documented boundary.
+// flags, as are CLTV/CSV (BIP 65/112) and the tapscript placeholder cases.
+// Skipped HONESTLY (and counted, never silently): BIP 141 witness
+// *structure/malleability* validation (witness-unexpected/malleated/wrong-length,
+// discourage-upgradable witness program) — a documented boundary.
 //
 // This caught four real consensus bugs: OP_TUCK stack underflow, MINIMALIF
 // over-applied to legacy script, rejected hybrid pubkeys, and the exact
@@ -127,7 +127,7 @@ function dummySpend(scriptSigHex, scriptPubKeyHex, amount, witness) {
 
 test('Bitcoin Core script_tests.json: every case matches our interpreter (bare, P2SH, witness)', () => {
   let ran = 0, matched = 0;
-  const skip = { timelock: 0, witnessStruct: 0, unmodeled: 0, unparseable: 0 };
+  const skip = { witnessStruct: 0, unmodeled: 0, unparseable: 0 };
   const mismatches = [];
 
   for (const t of cases) {
@@ -139,7 +139,6 @@ test('Bitcoin Core script_tests.json: every case matches our interpreter (bare, 
       [, sig, spk, flags, expected] = t;
     } else { [sig, spk, flags, expected] = t; }
 
-    if (TIMELOCK.test(sig) || TIMELOCK.test(spk)) { skip.timelock++; continue; } // need specific tx fields
     if (WITNESS_STRUCT.has(expected)) { skip.witnessStruct++; continue; }
     let sigHex, spkHex;
     try {
