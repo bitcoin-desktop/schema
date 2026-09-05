@@ -56,6 +56,8 @@ export class HeaderEngine {
 
   static fromSchemas(codec, chainSchema, validateSchema, network = 'btc:mainnet') {
     const params = chainSchema['@graph'].find((n) => n['@id'] === network);
+    if (!params) throw new Error(`unknown network: ${network}`);
+    codec.setChainParams?.(params); // variants + PoW hash follow the chain
     const ruleSet = validateSchema['@graph'].find((n) => n['@type'] === 'RuleSet' && n.phase === 'header');
     return new HeaderEngine(codec, params, ruleSet);
   }

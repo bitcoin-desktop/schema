@@ -85,6 +85,68 @@ export class Codec {
         if (node['@type'] === 'ConsensusStruct') this.types.set(shortId(node['@id']), node);
       }
     }
+    // Chain binding (see setChainParams): a chain may declare struct variants
+    // and the proof-of-work hash. Unbound, the codec knows exactly the base
+    // structures and SHA256d — Bitcoin, byte for byte.
+    this.chain = null;
+    this.powHashes = new Map([['sha256d', (bytes) => reverseHex(dsha256(bytes))]]);
+  }
+
+  // Bind the codec to a chain's NetworkParams node. Variants and the PoW hash
+  // are looked up from it; nothing else in the codec changes. Misconfiguration
+  // fails here, at bind time, not later inside decode or checkProofOfWork.
+  setChainParams(params) {
+    if (params) {
+      const name = params.powHash ?? 'sha256d';
+      if (!this.powHashes.has(name)) throw new Error(`${params['@id']}: proof-of-work hash not registered: ${name}`);
+      for (const [base, variants] of Object.entries(params.structVariants ?? {})) {
+        if (!this.types.has(shortId(base))) throw new Error(`${params['@id']}: structVariants for unknown ${base}`);
+        for (const v of variants) {
+          if (!v?.when?.field || !v.struct) throw new Error(`${params['@id']}: variant of ${base} needs when.field and struct`);
+          if (!this.types.has(shortId(v.struct))) throw new Error(`${params['@id']}: variant struct unknown: ${v.struct}`);
+          const hasBit = v.when.bit !== undefined, hasEq = v.when.equals !== undefined;
+          if (hasBit === hasEq) throw new Error(`${params['@id']}: variant of ${base} needs exactly one of when.bit / when.equals`);
+          if (hasBit && !(Number.isInteger(v.when.bit) && v.when.bit >= 0 && v.when.bit <= 31)) {
+            throw new Error(`${params['@id']}: when.bit must be an integer in 0..31`);
+          }
+        }
+      }
+    }
+    this.chain = params ?? null;
+  }
+
+  // Register a proof-of-work hash by the name a chain's `powHash` uses.
+  // fn(encodedHeaderBytes, headerObject) -> display-order hex.
+  registerPowHash(name, fn) { this.powHashes.set(name, fn); }
+
+  // A chain may declare, per base structure, variants selected by a predicate
+  // on a leading field: `structVariants: { "btc:BlockHeader": [ { when: {field, bit|equals}, struct } ] }`.
+  // The predicate is evaluated on the raw wire value when decoding and on the
+  // object's field when encoding, so both directions agree. The bit test is
+  // on the unsigned view, so `bit: 31` works for an i32le field too.
+  #variants(def) { return this.chain?.structVariants?.[def['@id']] ?? null; }
+  #predicate(when, value) {
+    if (value === undefined) return false;
+    if (when.bit !== undefined) return ((value >>> 0) & (2 ** when.bit)) !== 0;
+    return value === when.equals;
+  }
+  #pickVariant(def, r) {
+    const variants = this.#variants(def);
+    if (!variants) return null;
+    const start = r.pos;
+    const seen = Object.create(null); // field labels come from overlays: no prototype surprises
+    for (const f of def.fields) {
+      seen[f.label] = this.#readField(f, r, seen);
+      const hit = variants.find((v) => v.when.field === f.label && this.#predicate(v.when, seen[f.label]));
+      if (hit) { r.pos = start; return hit; }
+      if (variants.every((v) => Object.hasOwn(seen, v.when.field))) break;
+    }
+    r.pos = start;
+    return null;
+  }
+  #pickVariantForObject(def, obj) {
+    const variants = this.#variants(def);
+    return variants?.find((v) => this.#predicate(v.when, obj[v.when.field])) ?? null;
   }
 
   def(typeName) {
@@ -105,6 +167,8 @@ export class Codec {
 
   #readStruct(typeName, r, opts = {}) {
     const def = this.def(typeName);
+    const variant = this.#pickVariant(def, r);
+    if (variant) return this.#readStruct(shortId(variant.struct), r, opts);
     const obj = {};
     let segwit = opts.legacy ? false : null;
     for (const f of def.fields) {
@@ -182,6 +246,8 @@ export class Codec {
 
   #writeStruct(typeName, obj, w, opts = {}) {
     const def = this.def(typeName);
+    const variant = this.#pickVariantForObject(def, obj);
+    if (variant) return this.#writeStruct(shortId(variant.struct), obj, w, opts);
     const segwit = !opts.legacy && Array.isArray(obj.witness) && obj.witness.some((s) => s.length > 0);
     for (const f of def.fields) {
       if (f.presentIf === 'segwit' && !segwit) continue;
@@ -244,7 +310,13 @@ export class Codec {
 
   txid(tx) { return reverseHex(dsha256(this.encode('Transaction', tx, { legacy: true }))); }
   wtxid(tx) { return reverseHex(dsha256(this.encode('Transaction', tx))); }
-  blockHash(header) { return reverseHex(dsha256(this.encode('BlockHeader', header))); }
+  // The chain's proof-of-work hash over the encoded header (default SHA256d).
+  blockHash(header) {
+    const name = this.chain?.powHash ?? 'sha256d';
+    const fn = this.powHashes.get(name);
+    if (!fn) throw new Error(`proof-of-work hash not registered: ${name}`);
+    return fn(this.encode('BlockHeader', header), header);
+  }
   txSize(tx) { return this.encode('Transaction', tx).length; }
   txWeight(tx) {
     return 3 * this.encode('Transaction', tx, { legacy: true }).length + this.encode('Transaction', tx).length;
