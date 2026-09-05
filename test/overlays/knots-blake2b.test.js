@@ -28,7 +28,7 @@ const anchors = await load('test/vectors/knots/testnet4-anchors.json');
 const merged = mergeSchemas(chain, overlay);
 const NET = 'btc:testnet4-blake2b';
 
-const fresh = () => registerKnotsBlake2b(new Codec(core, proof, overlay));
+const fresh = () => { const c = registerKnotsBlake2b(new Codec(core, proof, overlay)); c.registerDerived('knots:BlockHeaderV2', (h) => ({ time: headerTime(h) })); return c; };
 const bound = () => { const c = fresh(); c.setChainParams(merged['@graph'].find((n) => n['@id'] === NET)); return c; };
 const rev16 = (hex) => bytesToHex(hexToBytes(hex).reverse());
 // Knots' vector fields (C++ names, GetHex order for the 128-bit ones) -> our object
@@ -37,7 +37,7 @@ const fromVector = (f) => ({
   timeOnWire: f.m_flags & 4 ? (f.nTime - f.m_time_offset) >>> 0 : f.nTime, bits: f.nBits, nonce: f.nNonce,
   nonce2: f.m_nonce2, nonce3: f.m_nonce3, extranonce: rev16(f.m_extranonce), timeOffset: f.m_time_offset,
   txCount: f.m_txcount, flags: f.m_flags, xorKeyMaskClearBits: f.m_xor_key_mask_clear_bits,
-  xorKey: rev16(f.m_xor_key), height: f.m_height, mmRhs: f.m_mm_rhs,
+  xorKey: rev16(f.m_xor_key), height: f.m_height, mmRhs: f.m_mm_rhs, time: f.nTime,
 });
 
 test('base model untouched: unbound codec knows only the 80-byte header and SHA256d', () => {
@@ -57,14 +57,16 @@ test('overlay is additive: adds two chains and one struct, resolves extends, ref
   const ids = (g) => new Set(g['@graph'].map((n) => n['@id']));
   const before = ids(chain), after = ids(merged);
   for (const id of before) assert.ok(after.has(id));
-  assert.equal(after.size, before.size + 3); // two chains + one struct
+  assert.equal(after.size, before.size + overlay['@graph'].length); // two chains, one struct, seven rules
   const t4b = merged['@graph'].find((n) => n['@id'] === NET);
   assert.equal(t4b.genesisHash, chain['@graph'].find((n) => n['@id'] === 'btc:testnet4').genesisHash); // inherited
   assert.equal(t4b.powHash, POW_HASH_NAME);
   assert.equal(t4b.blake2bHeight, 150308);
   assert.ok(!('extends' in t4b));
   assert.throws(() => mergeSchemas(chain, { '@graph': [{ '@id': 'btc:mainnet', foo: 1 }] }), /redefines btc:mainnet/);
-  assert.throws(() => mergeSchemas(chain, { '@graph': [{ '@id': 'x:y', extends: 'btc:nope' }] }), /extends unknown/);
+  // an `extends` this document cannot see is left for the document that can; createKernel refuses it if nobody could
+  const dangling = mergeSchemas(chain, { '@graph': [{ '@id': 'x:y', extends: 'btc:nope' }] });
+  assert.equal(dangling['@graph'].find((n) => n['@id'] === 'x:y').extends, 'btc:nope');
   // the base graph object itself is not mutated
   assert.equal(chain['@graph'].length, before.size);
 });
