@@ -95,11 +95,12 @@ export class HeaderEngine {
   // bits under BIP 94 (timewarpFix) and the last block's otherwise.
   expectedBits(prev, prevHeight, epochFirst, opts = {}) {
     if (this.params.powNoRetargeting) return prev.bits;
-    const boundary = (prevHeight + 1) % this.interval === 0;
+    const height = prevHeight + 1;
+    const boundary = height % this.interval === 0;
     if (!boundary && this.params.allowMinDifficultyBlocks) {
       const powBits = this.compactFromTarget(this.powLimit);
       if (opts.header && opts.header.time > prev.time + 2 * this.params.targetSpacing) {
-        return powBits;
+        return powBits; // the minimum-difficulty exception: no adjustment applies (Core returns here)
       }
       let h = prevHeight, hdr = prev;
       while (h % this.interval !== 0 && hdr.bits === powBits) {
@@ -107,12 +108,28 @@ export class HeaderEngine {
         if (!back) return null; // walk-back context exhausted
         h--; hdr = back;
       }
-      return hdr.bits;
+      return this.adjustAt(height, hdr.bits);
     }
-    if (!boundary) return prev.bits;
+    if (!boundary) return this.adjustAt(height, prev.bits);
     if (epochFirst == null) return null;
-    const base = this.params.timewarpFix ? epochFirst.bits : prev.bits;
-    return this.retarget(epochFirst.time, prev.time, base);
+    // Retarget seed: Bitcoin scales the last block's bits; BIP 94 (testnet4)
+    // the first block of the period's, so a min-difficulty last block cannot
+    // reset the difficulty. Explicit as `retargetSeed`, defaulting from timewarpFix.
+    const seed = this.params.retargetSeed ?? (this.params.timewarpFix ? 'first' : 'last');
+    const base = seed === 'first' ? epochFirst.bits : prev.bits;
+    return this.adjustAt(height, this.retarget(epochFirst.time, prev.time, base));
+  }
+
+  // A chain may declare one-off target adjustments, `targetAdjustments:
+  // [{ height, shiftLeft }]`: at exactly that height the expected target is
+  // eased by 2^shiftLeft, clamped at powLimit (a proof-of-work change's first
+  // block, e.g. Knots' ApplyBlake2bTargetShift). Absent on Bitcoin chains.
+  adjustAt(height, bits) {
+    const adj = this.params.targetAdjustments?.find((a) => a.height === height);
+    if (!adj || bits == null) return bits;
+    const target = this.codec.expandCompact(bits);
+    const shifted = target > (this.powLimit >> BigInt(adj.shiftLeft)) ? this.powLimit : target << BigInt(adj.shiftLeft);
+    return this.compactFromTarget(shifted);
   }
 
   retarget(firstTime, lastTime, baseBits) {

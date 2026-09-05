@@ -125,13 +125,18 @@
         ]
       },
       "blake2bHeight": 150308,
-      "blake2bTargetShift": 20,
       "rdtsExpiryTime": 1791903600,
       "lastSharedBlock": {
         "height": 150307,
         "hash": "000000000017ec2251d81c8d2ca401c713e98e85196c7f660a4088a7ca57b1cc"
       },
-      "forkBlockHash": "000000000000b9d1b7e1bb0e77215ee92c6ef7ec8f4473e23908380649e779b6"
+      "forkBlockHash": "000000000000b9d1b7e1bb0e77215ee92c6ef7ec8f4473e23908380649e779b6",
+      "targetAdjustments": [
+        {
+          "height": 150308,
+          "shiftLeft": 20
+        }
+      ]
     },
     {
       "@id": "btc:mainnet-blake2b",
@@ -153,10 +158,15 @@
         ]
       },
       "blake2bHeight": 961640,
-      "blake2bTargetShift": 22,
       "blake2bHeadline": "8-30 NYPost Deride And Conquer",
       "forkBlockHash": "0000000000000050c1e5f69672f459293be14f46e5a494e7a8c8541396f18eeb",
-      "rdtsExpiryTime": 1819756800
+      "rdtsExpiryTime": 1819756800,
+      "targetAdjustments": [
+        {
+          "height": 961640,
+          "shiftLeft": 22
+        }
+      ]
     },
     {
       "@id": "knots:rule-header-v1-until-fork",
