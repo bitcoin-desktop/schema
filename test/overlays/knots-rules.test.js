@@ -36,6 +36,17 @@ test('overlay rules join the base rule sets without mutating the base graph', ()
   assert.throws(() => createKernel({ ...schemas, network: 'x:chain', overlays: [{ graph: { '@graph': [{ '@id': 'x:chain', extends: 'btc:nope' }] } }] }), /extends unknown/);
 });
 
+test('merged @context keeps the base string and overlay objects as an array; derived fields cannot shadow consensus fields', () => {
+  const m = mergeSchemas(schemas.chain, overlayGraph);
+  assert.ok(Array.isArray(m['@context']));
+  assert.equal(m['@context'][0], schemas.chain['@context']);
+  assert.deepEqual(m['@context'][1], overlayGraph['@context']);
+  assert.equal(mergeSchemas(schemas.chain)['@context'], schemas.chain['@context']); // nothing to merge: unchanged
+  const k = kernel();
+  k.codec.registerDerived('knots:BlockHeaderV2', () => ({ bits: 0 }));
+  assert.throws(() => k.codec.decode('BlockHeader', anchors.headers[1].header), /derived field bits collides/);
+});
+
 test('createKernel without overlays is the hand wiring; a rule without a check is an error', () => {
   const k = createKernel({ ...schemas, network: 'btc:mainnet' });
   assert.equal(k.codec.chain['@id'], 'btc:mainnet');

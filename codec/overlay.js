@@ -41,6 +41,10 @@ export function mergeSchemas(base, ...overlays) {
     }
     byId.get(node.ruleSet).rules.push(node);
   }
-  const context = Object.assign({}, base['@context'], ...overlays.map((o) => o['@context'] ?? {}));
+  // JSON-LD contexts: a base file references its context by string; overlays
+  // add prefixes as objects. Keep both as an array of contexts (valid JSON-LD)
+  // rather than merging a string into an object.
+  const contexts = [base['@context'], ...overlays.map((o) => o['@context'])].filter((c) => c != null);
+  const context = contexts.length === 1 ? contexts[0] : contexts;
   return { ...base, '@context': context, '@graph': graph };
 }

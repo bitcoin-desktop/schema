@@ -190,7 +190,12 @@ export class Codec {
       obj[f.label] = v;
     }
     const derive = this.derived.get(def['@id']);
-    return derive ? Object.assign(obj, derive(obj)) : obj;
+    if (!derive) return obj;
+    const extra = derive(obj);
+    for (const k of Object.keys(extra)) {
+      if (def.fields.some((f) => f.label === k)) throw new Error(`${def['@id']}: derived field ${k} collides with a consensus field`);
+    }
+    return Object.assign(obj, extra);
   }
 
   #readField(f, r, obj) {

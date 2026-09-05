@@ -183,8 +183,8 @@
       "ruleSet": "btc:HeaderRules",
       "label": "header-height",
       "errorCode": "bad-header-height",
-      "comment": "The height committed in a v2 header must equal the previous block's height + 1.",
-      "check": "!isV2(header) || header.height === prev.height + 1",
+      "comment": "The height committed in a v2 header must equal the block's chain height (the previous block's height + 1). v1 headers commit no height and pass.",
+      "check": "!isV2(header) || header.height === height",
       "activationParam": "blake2bHeight"
     },
     {
