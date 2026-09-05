@@ -12,8 +12,8 @@
 // and witness-program (p2wpkh/p2wsh) execution — all against Core's exact
 // dummy crediting/spending transaction so the vectors' real signatures verify
 // against the same sighash. P2SH and segwit activation are gated on their
-// flags, as are CLTV/CSV (BIP 65/112) and the tapscript placeholder cases.
-// Skipped HONESTLY (and counted, never silently): BIP 141 witness
+// flags, as are CLTV/CSV (BIP 65/112). Core's tapscript placeholder cases are
+// materialised the way script_tests.cpp does it (see buildWitness). Skipped HONESTLY (and counted, never silently): BIP 141 witness
 // *structure/malleability* validation (witness-unexpected/malleated/wrong-length,
 // discourage-upgradable witness program) — a documented boundary.
 //
@@ -99,7 +99,6 @@ function buildWitness(elements) {
   }
   return { witness: out, taprootOutput: output ? '5120' + bytesToHex(output) : null };
 }
-const TIMELOCK = /CHECKLOCKTIMEVERIFY|CHECKSEQUENCEVERIFY/;
 // witness structure / malleability validation (BIP 141) is not modelled here
 const WITNESS_STRUCT = new Set([
   'WITNESS_UNEXPECTED', 'WITNESS_MALLEATED', 'WITNESS_MALLEATED_P2SH',

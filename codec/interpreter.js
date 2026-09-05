@@ -437,8 +437,10 @@ export class ScriptInterpreter {
       },
 
       // BIP 65 / BIP 112 are flag-gated in Core: without the flag the opcode is
-      // the pre-softfork NOP2 / NOP3 (a plain no-op, not "discouraged"). Null
-      // flags mean every rule is active, as elsewhere in this interpreter.
+      // the pre-softfork NOP2 / NOP3 (a plain no-op, not "discouraged"). With
+      // no flag set at all (null/undefined, the block-validation default) both
+      // stay enforced, matching the P2SH gate; a flag set that omits them
+      // turns them off.
       OP_CHECKLOCKTIMEVERIFY: (s, ctx) => {
         if (ctx.flags != null && !ctx.flags.has('CHECKLOCKTIMEVERIFY')) return;
         const n = numDecode(peek(s), 5);
