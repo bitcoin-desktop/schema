@@ -26,7 +26,9 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Codec } from '../codec/codec.js';
 import { ScriptEngine } from '../codec/script.js';
-import { ScriptInterpreter } from '../codec/interpreter.js';
+import { ScriptInterpreter, compactSize } from '../codec/interpreter.js';
+import { taggedHash, hexToBytes, bytesToHex } from '../codec/hash.js';
+import { tapOutputKey, checkTapTweak } from '../codec/secp256k1.js';
 
 const load = async (p) => JSON.parse(await readFile(new URL(p, import.meta.url), 'utf8'));
 const codec = new Codec(await load('../schema/core.jsonld'));
@@ -78,6 +80,25 @@ function parseScript(s) {
   }
   return hx(Uint8Array.from(out));
 }
+// Core's tapscript cases carry "#SCRIPT# <asm>" (parse it) and "#CONTROLBLOCK#"
+// (auto-generate: single leaf, version 0xc0, internal key = pubkey of Core's
+// key0, the secret 0x…01, i.e. G) in the witness, and "0x51 0x20 #TAPROOTOUTPUT#"
+// as the scriptPubKey (the tweaked output key). Mirrors script_tests.cpp.
+const KEY0_XONLY = hexToBytes('79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798');
+function buildWitness(elements) {
+  const out = []; let output = null;
+  for (const el of elements) {
+    if (el.startsWith('#SCRIPT#')) out.push(parseScript(el.slice('#SCRIPT#'.length)));
+    else if (el === '#CONTROLBLOCK#') {
+      const script = hexToBytes(out.at(-1));
+      const leafHash = taggedHash('TapLeaf', Uint8Array.of(0xc0), compactSize(script.length), script);
+      output = tapOutputKey(KEY0_XONLY, leafHash);
+      const parity = checkTapTweak(KEY0_XONLY, leafHash, output, 0) ? 0 : 1;
+      out.push(bytesToHex(Uint8Array.of(0xc0 | parity)) + bytesToHex(KEY0_XONLY));
+    } else out.push(el);
+  }
+  return { witness: out, taprootOutput: output ? '5120' + bytesToHex(output) : null };
+}
 const TIMELOCK = /CHECKLOCKTIMEVERIFY|CHECKSEQUENCEVERIFY/;
 // witness structure / malleability validation (BIP 141) is not modelled here
 const WITNESS_STRUCT = new Set([
@@ -106,14 +127,14 @@ function dummySpend(scriptSigHex, scriptPubKeyHex, amount, witness) {
 
 test('Bitcoin Core script_tests.json: every case matches our interpreter (bare, P2SH, witness)', () => {
   let ran = 0, matched = 0;
-  const skip = { timelock: 0, witnessStruct: 0, nonCanonP2SH: 0, unmodeled: 0, unparseable: 0 };
+  const skip = { timelock: 0, witnessStruct: 0, unmodeled: 0, unparseable: 0 };
   const mismatches = [];
 
   for (const t of cases) {
     if (t.length < 4) continue;                       // comment-only line
-    let witness = null, amount = 0, sig, spk, flags, expected;
+    let witness = null, taprootOutput = null, amount = 0, sig, spk, flags, expected;
     if (Array.isArray(t[0])) { // [witnessElements…, amountBTC] for segwit cases
-      witness = t[0].slice(0, -1);
+      ({ witness, taprootOutput } = buildWitness(t[0].slice(0, -1)));
       amount = Math.round(t[0][t[0].length - 1] * 1e8);
       [, sig, spk, flags, expected] = t;
     } else { [sig, spk, flags, expected] = t; }
@@ -121,11 +142,10 @@ test('Bitcoin Core script_tests.json: every case matches our interpreter (bare, 
     if (TIMELOCK.test(sig) || TIMELOCK.test(spk)) { skip.timelock++; continue; } // need specific tx fields
     if (WITNESS_STRUCT.has(expected)) { skip.witnessStruct++; continue; }
     let sigHex, spkHex;
-    try { sigHex = parseScript(sig); spkHex = parseScript(spk); } catch { skip.unparseable++; continue; }
-    // non-canonical P2SH push (PUSHDATA in the HASH160…EQUAL pattern) — not classified as P2SH by us
-    if (/P2SH/.test(flags) && scriptEngine.classify(spkHex).type === 'p2sh' && /^(4c|4d|4e)/.test(spkHex.slice(2, 4))) {
-      skip.nonCanonP2SH++; continue;
-    }
+    try {
+      sigHex = parseScript(sig);
+      spkHex = spk === '0x51 0x20 #TAPROOTOUTPUT#' && taprootOutput ? taprootOutput : parseScript(spk);
+    } catch { skip.unparseable++; continue; }
 
     const fset = new Set(flags.split(/[,\s]+/).filter(Boolean));
     const tx = dummySpend(sigHex, spkHex, amount, witness);

@@ -103,14 +103,18 @@ export class ScriptEngine {
   }
 
   // Match one ScriptType template ("OP_DUP OP_HASH160 <20> ..."): <n> matches
-  // a push of exactly n bytes, <a|b> of either length.
+  // a *direct* push (opcode 0x01..0x4b) of exactly n bytes, <a|b> of either
+  // length. A PUSHDATA1/2/4 carrying the same bytes does not match, exactly as
+  // in Core (IsPayToScriptHash / IsWitnessProgram / the Solver templates check
+  // the byte layout): BIP 16 treats "HASH160 PUSHDATA1 <20> EQUAL" as a bare
+  // script, not P2SH.
   #matchTemplate(template, ops) {
     const tokens = template.split(' ');
     if (tokens.length !== ops.length) return false;
     return tokens.every((tok, i) => {
       const op = ops[i];
       if (tok.startsWith('<')) {
-        if (op.data == null) return false;
+        if (op.data == null || op.code > 0x4b) return false;
         return tok.slice(1, -1).split('|').some((n) => op.data.length === 2 * Number(n));
       }
       return op.name === tok && op.data == null;
