@@ -436,7 +436,13 @@ export class ScriptInterpreter {
         s.push(numEncode(n + (this.#checkSigTapscript(sig, pub, ctx) ? 1 : 0)));
       },
 
+      // BIP 65 / BIP 112 are flag-gated in Core: without the flag the opcode is
+      // the pre-softfork NOP2 / NOP3 (a plain no-op, not "discouraged"). With
+      // no flag set at all (null/undefined, the block-validation default) both
+      // stay enforced, matching the P2SH gate; a flag set that omits them
+      // turns them off.
       OP_CHECKLOCKTIMEVERIFY: (s, ctx) => {
+        if (ctx.flags != null && !ctx.flags.has('CHECKLOCKTIMEVERIFY')) return;
         const n = numDecode(peek(s), 5);
         if (n < 0) fail('negative locktime');
         const sameKind = (n < 500000000) === (ctx.tx.lockTime < 500000000);
@@ -444,6 +450,7 @@ export class ScriptInterpreter {
         if (ctx.tx.inputs[ctx.inIndex].sequence === 0xffffffff) fail('final sequence');
       },
       OP_CHECKSEQUENCEVERIFY: (s, ctx) => {
+        if (ctx.flags != null && !ctx.flags.has('CHECKSEQUENCEVERIFY')) return;
         const n = numDecode(peek(s), 5);
         if (n < 0) fail('negative sequence');
         if (n & (1 << 31)) return; // disable flag: behaves as NOP
