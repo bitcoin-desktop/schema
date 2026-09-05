@@ -16,6 +16,20 @@ export class HeaderEngine {
     this.ruleSet = ruleSet;
     this.powLimit = BigInt('0x' + params.powLimit);
     this.interval = params.difficultyAdjustmentInterval;
+    // Consensus-critical chain params are validated here, once, so a typo or a
+    // malformed overlay fails at construction rather than changing verdicts.
+    const id = params['@id'] ?? params.name ?? 'chain';
+    if (params.retargetSeed !== undefined && !['first', 'last'].includes(params.retargetSeed)) {
+      throw new Error(`${id}: retargetSeed must be 'first' or 'last', got ${JSON.stringify(params.retargetSeed)}`);
+    }
+    if (params.targetAdjustments !== undefined) {
+      if (!Array.isArray(params.targetAdjustments)) throw new Error(`${id}: targetAdjustments must be an array of {height, shiftLeft}`);
+      for (const a of params.targetAdjustments) {
+        if (!Number.isInteger(a?.height) || a.height < 0 || !Number.isInteger(a?.shiftLeft) || a.shiftLeft < 0 || a.shiftLeft > 255) {
+          throw new Error(`${id}: targetAdjustments entries need an integer height >= 0 and shiftLeft in 0..255, got ${JSON.stringify(a)}`);
+        }
+      }
+    }
 
     this.checks = {
       'btc:rule-header-prev-link': (ctx) =>
@@ -95,11 +109,12 @@ export class HeaderEngine {
   // bits under BIP 94 (timewarpFix) and the last block's otherwise.
   expectedBits(prev, prevHeight, epochFirst, opts = {}) {
     if (this.params.powNoRetargeting) return prev.bits;
-    const boundary = (prevHeight + 1) % this.interval === 0;
+    const height = prevHeight + 1;
+    const boundary = height % this.interval === 0;
     if (!boundary && this.params.allowMinDifficultyBlocks) {
       const powBits = this.compactFromTarget(this.powLimit);
       if (opts.header && opts.header.time > prev.time + 2 * this.params.targetSpacing) {
-        return powBits;
+        return powBits; // the minimum-difficulty exception: no adjustment applies (Core returns here)
       }
       let h = prevHeight, hdr = prev;
       while (h % this.interval !== 0 && hdr.bits === powBits) {
@@ -107,12 +122,28 @@ export class HeaderEngine {
         if (!back) return null; // walk-back context exhausted
         h--; hdr = back;
       }
-      return hdr.bits;
+      return this.adjustAt(height, hdr.bits);
     }
-    if (!boundary) return prev.bits;
+    if (!boundary) return this.adjustAt(height, prev.bits);
     if (epochFirst == null) return null;
-    const base = this.params.timewarpFix ? epochFirst.bits : prev.bits;
-    return this.retarget(epochFirst.time, prev.time, base);
+    // Retarget seed: Bitcoin scales the last block's bits; BIP 94 (testnet4)
+    // the first block of the period's, so a min-difficulty last block cannot
+    // reset the difficulty. Explicit as `retargetSeed`, defaulting from timewarpFix.
+    const seed = this.params.retargetSeed ?? (this.params.timewarpFix ? 'first' : 'last');
+    const base = seed === 'first' ? epochFirst.bits : prev.bits;
+    return this.adjustAt(height, this.retarget(epochFirst.time, prev.time, base));
+  }
+
+  // A chain may declare one-off target adjustments, `targetAdjustments:
+  // [{ height, shiftLeft }]`: at exactly that height the expected target is
+  // eased by 2^shiftLeft, clamped at powLimit (a proof-of-work change's first
+  // block, e.g. Knots' ApplyBlake2bTargetShift). Absent on Bitcoin chains.
+  adjustAt(height, bits) {
+    const adj = this.params.targetAdjustments?.find((a) => a.height === height);
+    if (!adj || bits == null) return bits;
+    const target = this.codec.expandCompact(bits);
+    const shifted = target > (this.powLimit >> BigInt(adj.shiftLeft)) ? this.powLimit : target << BigInt(adj.shiftLeft);
+    return this.compactFromTarget(shifted);
   }
 
   retarget(firstTime, lastTime, baseBits) {

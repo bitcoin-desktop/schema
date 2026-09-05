@@ -173,6 +173,18 @@
           "comment": "BIP 94 (testnet4): retargets compute from the epoch-first block's bits, and the first block of each epoch may not be timestamped more than maxTimewarp before its predecessor."
         },
         {
+          "property": "btc:retargetSeed",
+          "label": "retargetSeed",
+          "valueType": "string",
+          "comment": "Which block's bits the period retarget scales: 'last' (Bitcoin) or 'first' (BIP 94: the first block of the period, so a min-difficulty last block cannot reset difficulty). Defaults from timewarpFix."
+        },
+        {
+          "property": "btc:targetAdjustments",
+          "label": "targetAdjustments",
+          "valueType": "array",
+          "comment": "One-off target adjustments, [{height, shiftLeft}]: at exactly that height the expected target is eased by 2^shiftLeft, clamped at powLimit \u2014 the first block of a proof-of-work change. Absent on Bitcoin chains."
+        },
+        {
           "property": "btc:maxTimewarp",
           "label": "maxTimewarp",
           "valueType": "u32",
@@ -311,7 +323,8 @@
       "allowMinDifficultyBlocks": true,
       "timewarpFix": true,
       "maxTimewarp": 600,
-      "xpubVersion": 70617039
+      "xpubVersion": 70617039,
+      "retargetSeed": "first"
     },
     {
       "@id": "btc:signet",
