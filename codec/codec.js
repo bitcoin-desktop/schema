@@ -93,8 +93,27 @@ export class Codec {
   }
 
   // Bind the codec to a chain's NetworkParams node. Variants and the PoW hash
-  // are looked up from it; nothing else in the codec changes.
-  setChainParams(params) { this.chain = params ?? null; }
+  // are looked up from it; nothing else in the codec changes. Misconfiguration
+  // fails here, at bind time, not later inside decode or checkProofOfWork.
+  setChainParams(params) {
+    if (params) {
+      const name = params.powHash ?? 'sha256d';
+      if (!this.powHashes.has(name)) throw new Error(`${params['@id']}: proof-of-work hash not registered: ${name}`);
+      for (const [base, variants] of Object.entries(params.structVariants ?? {})) {
+        if (!this.types.has(shortId(base))) throw new Error(`${params['@id']}: structVariants for unknown ${base}`);
+        for (const v of variants) {
+          if (!v?.when?.field || !v.struct) throw new Error(`${params['@id']}: variant of ${base} needs when.field and struct`);
+          if (!this.types.has(shortId(v.struct))) throw new Error(`${params['@id']}: variant struct unknown: ${v.struct}`);
+          const hasBit = v.when.bit !== undefined, hasEq = v.when.equals !== undefined;
+          if (hasBit === hasEq) throw new Error(`${params['@id']}: variant of ${base} needs exactly one of when.bit / when.equals`);
+          if (hasBit && !(Number.isInteger(v.when.bit) && v.when.bit >= 0 && v.when.bit <= 31)) {
+            throw new Error(`${params['@id']}: when.bit must be an integer in 0..31`);
+          }
+        }
+      }
+    }
+    this.chain = params ?? null;
+  }
 
   // Register a proof-of-work hash by the name a chain's `powHash` uses.
   // fn(encodedHeaderBytes, headerObject) -> display-order hex.
@@ -115,12 +134,12 @@ export class Codec {
     const variants = this.#variants(def);
     if (!variants) return null;
     const start = r.pos;
-    const seen = {};
+    const seen = Object.create(null); // field labels come from overlays: no prototype surprises
     for (const f of def.fields) {
       seen[f.label] = this.#readField(f, r, seen);
       const hit = variants.find((v) => v.when.field === f.label && this.#predicate(v.when, seen[f.label]));
       if (hit) { r.pos = start; return hit; }
-      if (variants.every((v) => v.when.field in seen)) break;
+      if (variants.every((v) => Object.hasOwn(seen, v.when.field))) break;
     }
     r.pos = start;
     return null;

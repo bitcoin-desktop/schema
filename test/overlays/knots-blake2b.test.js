@@ -115,6 +115,19 @@ test('a real post-fork block decodes, hashes, weighs and validates as the node s
   assert.equal(bytesToHex(c.encode('Block', b)), anchors.block.raw);
 });
 
+test('binding a misconfigured chain fails fast, at setChainParams', () => {
+  const t4b = merged['@graph'].find((n) => n['@id'] === NET);
+  // PoW hash not registered on this codec
+  assert.throws(() => new Codec(core, proof, overlay).setChainParams(t4b), /proof-of-work hash not registered: knots:blake2b-v2/);
+  const bad = (patch) => () => fresh().setChainParams({ ...t4b, structVariants: { 'btc:BlockHeader': [{ when: { field: 'version', bit: 31 }, struct: 'knots:BlockHeaderV2', ...patch }] } });
+  assert.throws(bad({ when: { field: 'version', bit: 32 } }), /0\.\.31/);
+  assert.throws(bad({ when: { field: 'version', bit: 31, equals: 1 } }), /exactly one/);
+  assert.throws(bad({ when: { field: 'version' } }), /exactly one/);
+  assert.throws(bad({ struct: 'knots:Nope' }), /variant struct unknown/);
+  assert.throws(() => fresh().setChainParams({ ...t4b, structVariants: { 'btc:Nope': [] } }), /unknown btc:Nope/);
+  assert.doesNotThrow(() => fresh().setChainParams(t4b));
+});
+
 test('HeaderEngine.fromSchemas binds the codec to the chain (prev-link and PoW rules see BLAKE2b hashes)', () => {
   const c = fresh();
   const he = HeaderEngine.fromSchemas(c, merged, validate, NET);
