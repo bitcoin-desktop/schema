@@ -65,3 +65,17 @@ test('retargetSeed: first-of-period (BIP 94) vs last block, explicit and default
   assert.equal(at({ ...mainnetParams, timewarpFix: true }), 0x1a008d4f);         // defaulted from timewarpFix
   assert.equal(at({ ...mainnetParams, timewarpFix: true, retargetSeed: 'last' }), 0x1d00ffff); // explicit wins
 });
+
+test('misconfigured difficulty params fail at engine construction', () => {
+  const mainnetParams = schemas.chain['@graph'].find((n) => n['@id'] === 'btc:mainnet');
+  const ruleSet = schemas.validate['@graph'].find((n) => n['@type'] === 'RuleSet' && n.phase === 'header');
+  const k = createKernel({ ...schemas, network: 'btc:mainnet' });
+  const make = (patch) => () => new HeaderEngine(k.codec, { ...mainnetParams, ...patch }, ruleSet);
+  assert.throws(make({ retargetSeed: 'frist' }), /retargetSeed must be 'first' or 'last'/);
+  assert.throws(make({ targetAdjustments: { height: 1, shiftLeft: 2 } }), /must be an array/);
+  assert.throws(make({ targetAdjustments: [{ height: 1, shiftLeft: -1 }] }), /shiftLeft in 0\.\.255/);
+  assert.throws(make({ targetAdjustments: [{ height: 1.5, shiftLeft: 2 }] }), /integer height/);
+  assert.throws(make({ targetAdjustments: [{ shiftLeft: 2 }] }), /integer height/);
+  assert.doesNotThrow(make({ retargetSeed: 'last', targetAdjustments: [{ height: 10, shiftLeft: 0 }] }));
+  assert.doesNotThrow(make({}));
+});

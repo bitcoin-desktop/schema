@@ -16,6 +16,20 @@ export class HeaderEngine {
     this.ruleSet = ruleSet;
     this.powLimit = BigInt('0x' + params.powLimit);
     this.interval = params.difficultyAdjustmentInterval;
+    // Consensus-critical chain params are validated here, once, so a typo or a
+    // malformed overlay fails at construction rather than changing verdicts.
+    const id = params['@id'] ?? params.name ?? 'chain';
+    if (params.retargetSeed !== undefined && !['first', 'last'].includes(params.retargetSeed)) {
+      throw new Error(`${id}: retargetSeed must be 'first' or 'last', got ${JSON.stringify(params.retargetSeed)}`);
+    }
+    if (params.targetAdjustments !== undefined) {
+      if (!Array.isArray(params.targetAdjustments)) throw new Error(`${id}: targetAdjustments must be an array of {height, shiftLeft}`);
+      for (const a of params.targetAdjustments) {
+        if (!Number.isInteger(a?.height) || a.height < 0 || !Number.isInteger(a?.shiftLeft) || a.shiftLeft < 0 || a.shiftLeft > 255) {
+          throw new Error(`${id}: targetAdjustments entries need an integer height >= 0 and shiftLeft in 0..255, got ${JSON.stringify(a)}`);
+        }
+      }
+    }
 
     this.checks = {
       'btc:rule-header-prev-link': (ctx) =>
