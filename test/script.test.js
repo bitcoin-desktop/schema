@@ -27,7 +27,7 @@ test('schema wiring: opcode table loads', () => {
   assert.equal(engine.byName.get('OP_CHECKSIGADD'), 0xba);
   assert.equal(engine.byCode.get(0xb1), 'OP_CHECKLOCKTIMEVERIFY');
   assert.ok(engine.byName.size >= 110);
-  assert.equal(engine.scriptTypes.length, 10);
+  assert.equal(engine.scriptTypes.length, 11); // p2pk, p2pkh, p2sh, p2wpkh, p2wsh, p2tr, anchor, multisig, nulldata, witness-unknown, nonstandard
 });
 
 test('real mainnet outputs classify and derive the same address as esplora', () => {
