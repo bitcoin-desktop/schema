@@ -3,7 +3,7 @@
     "knots": "https://bitcoinknots.org/ns#"
   },
   "@id": "knots:blake2b-overlay",
-  "comment": "Bitcoin Knots BLAKE2b hardfork (v29.4.1.knots20260508, PRs 359/385): a 164-byte v2 block header selected by the top bit of version, a new proof-of-work hash, and two chains forking from Bitcoin history. Additive overlay: nothing in the base model is redefined.",
+  "comment": "Bitcoin Knots BLAKE2b hardfork (v29.4.1.knots20260508, PRs 357/359/385): a 164-byte v2 block header selected by the top bit of version, a new proof-of-work hash, the unified opt-in signature hash (SIGHASH_UNIFIED, active from the same height: unifiedSighashParam names it), and two chains forking from Bitcoin history. Additive overlay: nothing in the base model is redefined.",
   "@graph": [
     {
       "@id": "knots:BlockHeaderV2",
@@ -125,6 +125,7 @@
         ]
       },
       "blake2bHeight": 150308,
+      "unifiedSighashParam": "blake2bHeight",
       "rdtsExpiryTime": 1791903600,
       "lastSharedBlock": {
         "height": 150307,
@@ -158,6 +159,7 @@
         ]
       },
       "blake2bHeight": 961640,
+      "unifiedSighashParam": "blake2bHeight",
       "blake2bHeadline": "8-30 NYPost Deride And Conquer",
       "forkBlockHash": "0000000000000050c1e5f69672f459293be14f46e5a494e7a8c8541396f18eeb",
       "rdtsExpiryTime": 1819756800,

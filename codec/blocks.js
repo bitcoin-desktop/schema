@@ -108,8 +108,13 @@ export class BlockEngine {
           : spending.seqlockUnknown > 0 ? null : true,
       // real script + signature verification of every resolvable input;
       // pruned-away prevouts and taproot inputs skip honestly
-      'btc:rule-blockctx-scripts': ({ spending }) => {
+      'btc:rule-blockctx-scripts': ({ spending, height }) => {
         if (!this.interpreter) return null;
+        // Knots' unified opt-in sighash applies from the height the chain's
+        // unifiedSighashParam names (the BLAKE2b fork height); before it, and
+        // on chains without the parameter, an opted-in signature reads legacy.
+        const usp = this.params.unifiedSighashParam;
+        const unifiedSighash = !!usp && height != null && height >= this.params[usp];
         let unsupported = 0;
         const byTx = new Map();
         for (const ri of spending.resolvedInputs) {
@@ -122,7 +127,7 @@ export class BlockEngine {
           const allPrevouts = resolved.size === tx.inputs.length
             ? tx.inputs.map((_, i) => resolved.get(i)) : null;
           for (const [inIndex, prevout] of resolved) {
-            const v = this.interpreter.verifyInput(tx, inIndex, prevout, allPrevouts);
+            const v = this.interpreter.verifyInput(tx, inIndex, prevout, allPrevouts, null, { unifiedSighash });
             if (v.ok === false) return false;
             if (v.ok === null) unsupported++;
           }

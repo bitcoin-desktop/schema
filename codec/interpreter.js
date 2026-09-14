@@ -180,11 +180,23 @@ function isLowDerSig(sig) {
   const p = parseDerSignature(sig.subarray(0, sig.length - 1));
   return !!p && p.s <= N / 2n;
 }
-// STRICTENC defined hashtype (SIGHASH_ALL/NONE/SINGLE, optionally ANYONECANPAY):
-function isDefinedHashtype(sig) {
-  const ht = sig[sig.length - 1] & ~0x80;
+// STRICTENC defined hashtype (SIGHASH_ALL/NONE/SINGLE, optionally ANYONECANPAY);
+// where the unified sighash applies, SIGHASH_UNIFIED (0x20) is a defined bit too.
+function isDefinedHashtype(sig, unified = false) {
+  let ht = sig[sig.length - 1] & ~0x80;
+  if (unified) ht &= ~SIGHASH_UNIFIED;
   return ht >= 1 && ht <= 3;
 }
+
+// Bitcoin Knots' unified opt-in signature hash (doc/unified-sighash.md in
+// v29.4.1.knots20260508): one message for every script type, selected per
+// signature by this bit in the hash type byte. Active from the chain's
+// `unifiedSighashParam` height (the BLAKE2b fork height on the Knots chains).
+export const SIGHASH_UNIFIED = 0x20;
+// Thrown when an opted-in signature is met without every input's prevout:
+// the message commits to all spent amounts and scripts, so it is honestly
+// unverifiable rather than wrong. verifyInput turns it into ok: null.
+class NeedsPrevouts extends Error {}
 // STRICTENC pubkey: compressed (33, 0x02/0x03) or uncompressed (65, 0x04):
 function isPubKeyEnc(pub) {
   return (pub.length === 33 && (pub[0] === 0x02 || pub[0] === 0x03))
@@ -283,7 +295,7 @@ export class ScriptInterpreter {
   // BIP 341 signature message. Single SHA-256 hashing throughout (not double),
   // wrapped in the TapSighash tag. Commits to every input's amount AND
   // scriptPubKey — hence `prevouts` is the full per-input array.
-  sighashTaproot(tx, inIndex, prevouts, hashType, { annex = null, leafHash = null } = {}) {
+  sighashTaproot(tx, inIndex, prevouts, hashType, { annex = null, leafHash = null, codeSepPos = 0xffffffff } = {}) {
     if (![0x00, 0x01, 0x02, 0x03, 0x81, 0x82, 0x83].includes(hashType)) fail('invalid taproot sighash type');
     const anyone = hashType & 0x80;
     const base = hashType & 0x03; // 0 = DEFAULT (ALL semantics)
@@ -327,8 +339,66 @@ export class ScriptInterpreter {
       if (inIndex >= tx.outputs.length) fail('sighash single without matching output');
       parts.push(sha256(this.codec.encode('TransactionOutput', tx.outputs[inIndex])));
     }
-    if (leafHash) parts.push(leafHash, u8(0x00), u32(0xffffffff));
+    if (leafHash) parts.push(leafHash, u8(0x00), u32(codeSepPos));
     return taggedHash('TapSighash', cat(parts));
+  }
+
+  // Knots' unified sighash: BIP 341's layout with a script-type byte in place
+  // of the spend type, single SHA-256 aggregates, TaggedHash("UnifiedSighash").
+  // scriptType 0 = bare/P2SH (scriptCode after FindAndDelete and the last
+  // executed OP_CODESEPARATOR, as the legacy rules use it, OP_CODESEPARATORs
+  // kept), 1 = witness v0 (BIP 143 scriptCode), 2 = taproot key path,
+  // 3 = tapscript (leafHash, key version 0, codeseparator position).
+  sighashUnified(tx, inIndex, prevouts, hashType, scriptType,
+      { scriptCodeHex = null, annex = null, leafHash = null, codeSepPos = 0xffffffff } = {}) {
+    if (!(hashType & SIGHASH_UNIFIED)) fail('unified sighash without SIGHASH_UNIFIED');
+    if (!prevouts || prevouts.length !== tx.inputs.length) throw new NeedsPrevouts('unified sighash needs every input prevout');
+    const taproot = scriptType === 2 || scriptType === 3;
+    const outputType = hashType & 0x1f;
+    if (taproot) { // BIP 341's reading: undefined bytes are refused at consensus
+      if (hashType & ~(0x1f | 0x80 | SIGHASH_UNIFIED)) fail('invalid taproot sighash type');
+      if (outputType < 1 || outputType > 3) fail('invalid taproot sighash type');
+    }
+    const anyone = hashType & 0x80;
+    const u8 = (v) => Uint8Array.of(v);
+    const u32 = (v) => { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v, true); return b; };
+    const i64 = (v) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigInt64(0, BigInt(v), true); return b; };
+    const cat = (arrs) => {
+      const out = new Uint8Array(arrs.reduce((s, a) => s + a.length, 0));
+      let p = 0; for (const a of arrs) { out.set(a, p); p += a.length; }
+      return out;
+    };
+    const varbytes = (bytes) => cat([compactSize(bytes.length), bytes]);
+    const outpoint = (inp) => cat([hexToBytes(inp.prevout.txid).reverse(), u32(inp.prevout.vout)]);
+    const serOut = (o) => this.codec.encode('TransactionOutput', o);
+    const C = this.#txCache(tx);
+    const parts = [u8(0x00), u8(hashType & 0xff), u32(tx.version), u32(tx.lockTime), u8(0x00)];
+    if (!anyone) {
+      parts.push(C.tPrevouts ??= sha256(cat(tx.inputs.map(outpoint))));
+      parts.push(C.tAmounts ??= sha256(cat(prevouts.map((p) => i64(p.value)))));
+      parts.push(C.tScriptpubkeys ??= sha256(cat(prevouts.map((p) => varbytes(hexToBytes(p.scriptPubKey))))));
+      parts.push(C.tSequences ??= sha256(cat(tx.inputs.map((i) => u32(i.sequence)))));
+    }
+    if (outputType !== 2 && outputType !== 3) parts.push(C.tOutputs ??= sha256(cat(tx.outputs.map(serOut))));
+    parts.push(u8(scriptType));
+    if (anyone) parts.push(outpoint(tx.inputs[inIndex]), serOut(prevouts[inIndex]), u32(tx.inputs[inIndex].sequence));
+    else parts.push(u32(inIndex));
+    if (!taproot) {
+      if (scriptCodeHex == null) fail('unified sighash needs scriptCode');
+      parts.push(varbytes(hexToBytes(scriptCodeHex)));
+    } else {
+      parts.push(u8(annex ? 1 : 0));
+      if (annex) parts.push(sha256(varbytes(annex)));
+    }
+    if (outputType === 3) {
+      if (inIndex >= tx.outputs.length) fail('sighash single without matching output');
+      parts.push(sha256(serOut(tx.outputs[inIndex])));
+    }
+    if (scriptType === 3) {
+      if (!leafHash) fail('unified tapscript sighash needs the leaf hash');
+      parts.push(leafHash, u8(0x00), u32(codeSepPos));
+    }
+    return taggedHash('UnifiedSighash', cat(parts));
   }
 
   // Tapscript signature check (BIP 342): an empty signature pushes false;
@@ -345,8 +415,10 @@ export class ScriptInterpreter {
       if (hashType === 0x00) fail('explicit SIGHASH_DEFAULT in 65-byte signature');
       sig = sigBytes.subarray(0, 64);
     } else if (sigBytes.length !== 64) fail('bad schnorr signature size');
-    const msg = this.sighashTaproot(ctx.tx, ctx.inIndex, ctx.prevouts, hashType,
-      { annex: ctx.annex, leafHash: ctx.leafHash });
+    const tail = { annex: ctx.annex, leafHash: ctx.leafHash, codeSepPos: ctx.codeSepPos ?? 0xffffffff };
+    const msg = (ctx.unified && (hashType & SIGHASH_UNIFIED))
+      ? this.sighashUnified(ctx.tx, ctx.inIndex, ctx.prevouts, hashType, 3, tail)
+      : this.sighashTaproot(ctx.tx, ctx.inIndex, ctx.prevouts, hashType, tail);
     if (!verifySchnorr(msg, sig, pubBytes)) fail('invalid schnorr signature');
     return true;
   }
@@ -368,7 +440,7 @@ export class ScriptInterpreter {
     if (f && sigBytes.length > 0) {
       if ((f.has('DERSIG') || f.has('LOW_S') || f.has('STRICTENC')) && !isValidDerSig(sigBytes)) fail('non-DER signature');
       if (f.has('LOW_S') && !isLowDerSig(sigBytes)) fail('high-S signature');
-      if (f.has('STRICTENC') && !isDefinedHashtype(sigBytes)) fail('undefined hashtype');
+      if (f.has('STRICTENC') && !isDefinedHashtype(sigBytes, ctx.unified)) fail('undefined hashtype');
     }
     if (f?.has('STRICTENC') && !isPubKeyEnc(pubBytes)) fail('bad pubkey encoding');
     // BIP 143: witness v0 pubkeys must be compressed under WITNESS_PUBKEYTYPE
@@ -381,9 +453,12 @@ export class ScriptInterpreter {
     const sig = parseDerSignature(sigBytes.subarray(0, sigBytes.length - 1));
     const pub = parsePubkey(pubBytes);
     if (!sig || !pub) return false;
-    const hash = ctx.sigVersion === 'witnessV0'
-      ? this.sighashWitnessV0(ctx.tx, ctx.inIndex, scriptCode, ctx.amount, hashType)
-      : this.sighashLegacy(ctx.tx, ctx.inIndex, scriptCode, hashType);
+    const witnessV0 = ctx.sigVersion === 'witnessV0';
+    const hash = (ctx.unified && (hashType & SIGHASH_UNIFIED))
+      ? this.sighashUnified(ctx.tx, ctx.inIndex, ctx.prevouts, hashType, witnessV0 ? 1 : 0, { scriptCodeHex: scriptCode })
+      : witnessV0
+        ? this.sighashWitnessV0(ctx.tx, ctx.inIndex, scriptCode, ctx.amount, hashType)
+        : this.sighashLegacy(ctx.tx, ctx.inIndex, scriptCode, hashType);
     return verifyEcdsa(hash, sig, pub);
   }
 
@@ -410,6 +485,7 @@ export class ScriptInterpreter {
       OP_CODESEPARATOR: (s, ctx, exec, op) => {
         if (isLegacy(ctx.sigVersion) && ctx.flags?.has('CONST_SCRIPTCODE')) fail('OP_CODESEPARATOR under CONST_SCRIPTCODE');
         ctx.codeSepOffset = op.at + 1;
+        ctx.codeSepPos = ctx.opPos;
       },
       OP_IF: (s, ctx, exec, _, executing) => {
         let f = false;
@@ -610,6 +686,7 @@ export class ScriptInterpreter {
       ctx.alt = ctx.alt ?? [];
       ctx.scriptCode = ctx.scriptCode ?? scriptHex;
       ctx.codeSepOffset = 0;          // bytes before the last executed OP_CODESEPARATOR; reset per script run
+      ctx.codeSepPos = 0xffffffff;    // BIP 342: opcode position of the last executed OP_CODESEPARATOR, none yet
       this.requireMinimalNum = !!ctx.flags?.has('MINIMALDATA'); // for the shared num() helper
 
       const ops = this.scriptEngine.parse(scriptHex);
@@ -621,9 +698,10 @@ export class ScriptInterpreter {
         }
       }
       const exec = [];
-      let opCount = 0;
+      let opCount = 0, opPos = 0;
       for (const op of ops) {
         if (op.error) fail(op.error);
+        ctx.opPos = opPos++; // Core's opcode_pos: every opcode read counts, pushes included
         const executing = exec.every(Boolean);
         if (op.data != null) {
           if (op.data.length / 2 > this.limits.maxScriptElementSize) fail('push too large');
@@ -675,25 +753,26 @@ export class ScriptInterpreter {
 
   // Core's VerifyWitnessProgram. `isP2SH` matters for v1: a P2SH-wrapped
   // 32-byte v1 program is not taproot (BIP 341) and falls through as unknown.
-  #verifyWitnessProgram(tx, inIndex, version, programHex, amount, flags, isP2SH, allPrevouts) {
+  #verifyWitnessProgram(tx, inIndex, version, programHex, amount, flags, isP2SH, allPrevouts, unified = false) {
+    const extra = { prevouts: allPrevouts, unified };
     const witness = (tx.witness?.[inIndex] ?? []).map(hexToBytes);
     if (version === 0) {
       if (programHex.length === 64) { // BIP 141 P2WSH
         if (!witness.length) return { ok: false, error: 'WITNESS_PROGRAM_WITNESS_EMPTY' };
         const witnessScript = witness.pop();
         if (bytesToHex(sha256(witnessScript)) !== programHex) return { ok: false, error: 'WITNESS_PROGRAM_MISMATCH' };
-        return this.#executeWitnessScript(witness, bytesToHex(witnessScript), tx, inIndex, amount, flags);
+        return this.#executeWitnessScript(witness, bytesToHex(witnessScript), tx, inIndex, amount, flags, extra);
       }
       if (programHex.length === 40) { // BIP 141 P2WPKH
         if (witness.length !== 2) return { ok: false, error: 'WITNESS_PROGRAM_MISMATCH' };
-        return this.#executeWitnessScript(witness, '76a914' + programHex + '88ac', tx, inIndex, amount, flags);
+        return this.#executeWitnessScript(witness, '76a914' + programHex + '88ac', tx, inIndex, amount, flags, extra);
       }
       return { ok: false, error: 'WITNESS_PROGRAM_WRONG_LENGTH' };
     }
     if (version === 1 && programHex.length === 64 && !isP2SH) { // BIP 341 taproot
       if (flags && !flags.has('TAPROOT')) return { ok: true }; // not enabled: anyone-can-spend, as in Core
       if (!allPrevouts) return { ok: null, reason: 'taproot needs every input prevout resolved' };
-      return this.#verifyTaproot(tx, inIndex, allPrevouts, flags);
+      return this.#verifyTaproot(tx, inIndex, allPrevouts, flags, unified);
     }
     if (flags?.has('DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM')) return { ok: false, error: 'DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM' };
     // Core returns success here (future soft-fork compatibility); we decline
@@ -703,10 +782,10 @@ export class ScriptInterpreter {
 
   // Core's ExecuteWitnessScript for witness v0: 520-byte cap on every initial
   // stack element, evaluate, exactly one truthy element must remain.
-  #executeWitnessScript(stack, scriptHex, tx, inIndex, amount, flags) {
+  #executeWitnessScript(stack, scriptHex, tx, inIndex, amount, flags, extra = {}) {
     for (const el of stack) if (el.length > this.limits.maxScriptElementSize) return { ok: false, error: 'PUSH_SIZE' };
     const st = stack.map((w) => Uint8Array.from(w));
-    const r = this.execute(scriptHex, st, { tx, inIndex, amount, sigVersion: 'witnessV0', scriptCode: scriptHex, flags });
+    const r = this.execute(scriptHex, st, { tx, inIndex, amount, sigVersion: 'witnessV0', scriptCode: scriptHex, flags, ...extra });
     if (!r.ok) return r;
     if (st.length !== 1) return { ok: false, error: 'CLEANSTACK' };
     return truthy(st[0]) ? { ok: true } : { ok: false, error: 'EVAL_FALSE' };
@@ -715,7 +794,7 @@ export class ScriptInterpreter {
   // BIP 341 taproot spend verification: key path (one Schnorr signature
   // with the tweaked output key) or script path (reveal a leaf script and
   // a control block proving its commitment, then execute as tapscript).
-  #verifyTaproot(tx, inIndex, prevouts, flags = null) {
+  #verifyTaproot(tx, inIndex, prevouts, flags = null, unified = false) {
     const program = hexToBytes(prevouts[inIndex].scriptPubKey.slice(4));
     const witness = (tx.witness?.[inIndex] ?? []).map(hexToBytes);
     if (!witness.length) return { ok: false, error: 'empty taproot witness' };
@@ -736,7 +815,9 @@ export class ScriptInterpreter {
         sig = raw.subarray(0, 64);
       } else if (raw.length !== 64) return { ok: false, error: 'bad key-path signature size' };
       try {
-        const msg = this.sighashTaproot(tx, inIndex, prevouts, hashType, { annex });
+        const msg = (unified && (hashType & SIGHASH_UNIFIED))
+          ? this.sighashUnified(tx, inIndex, prevouts, hashType, 2, { annex })
+          : this.sighashTaproot(tx, inIndex, prevouts, hashType, { annex });
         return verifySchnorr(msg, sig, program)
           ? { ok: true, path: 'key' } : { ok: false, error: 'invalid key-path schnorr signature' };
       } catch (e) {
@@ -770,7 +851,7 @@ export class ScriptInterpreter {
     const scriptHex = bytesToHex(script);
     const ctx = {
       tx, inIndex, prevouts, amount: prevouts[inIndex].value,
-      sigVersion: 'tapscript', leafHash, annex, budget: { n: 50 + witnessSize }, flags,
+      sigVersion: 'tapscript', leafHash, annex, budget: { n: 50 + witnessSize }, flags, unified,
     };
     const r = this.execute(scriptHex, stack, ctx);
     if (!r.ok) return { ...r, path: 'script' };
@@ -783,7 +864,19 @@ export class ScriptInterpreter {
   // {value, scriptPubKey} per input, in order) is required because the
   // BIP 341 sighash commits to all of them. Returns {ok: true|false|null};
   // null = honestly unverifiable (missing prevouts / future versions).
-  verifyInput(tx, inIndex, prevout, allPrevouts = null, flags = null) {
+  // `unifiedSighash`: whether Knots' unified opt-in sighash applies (the block
+  // is at or past the chain's activation height); an opted-in signature is
+  // then verified against that message, and needs `allPrevouts` like taproot.
+  verifyInput(tx, inIndex, prevout, allPrevouts = null, flags = null, { unifiedSighash = false } = {}) {
+    try {
+      return this.#verifyInput(tx, inIndex, prevout, allPrevouts, flags, unifiedSighash);
+    } catch (e) {
+      if (e instanceof NeedsPrevouts) return { ok: null, reason: 'unified sighash needs every input prevout resolved', type: this.scriptEngine.classify(prevout.scriptPubKey).type };
+      throw e;
+    }
+  }
+
+  #verifyInput(tx, inIndex, prevout, allPrevouts, flags, unified) {
     // Core's VerifyScript, in its order: scriptSig then scriptPubKey on one
     // stack; bare witness program; P2SH (redeem script, then a wrapped witness
     // program); CLEANSTACK; unexpected witness. P2SH and segwit are only active
@@ -792,7 +885,7 @@ export class ScriptInterpreter {
     const spk = prevout.scriptPubKey;
     let type = this.scriptEngine.classify(spk).type;
     const input = tx.inputs[inIndex];
-    const ctx = { tx, inIndex, amount: prevout.value, sigVersion: 'legacy', flags };
+    const ctx = { tx, inIndex, amount: prevout.value, sigVersion: 'legacy', flags, prevouts: allPrevouts, unified };
     const p2shActive = flags === null || flags.has('P2SH');
     const witnessActive = flags === null || flags.has('WITNESS');
     const pushOnly = this.scriptEngine.parse(input.scriptSig).every((o) => o.code <= 0x60);
@@ -811,7 +904,7 @@ export class ScriptInterpreter {
     if (bare) {
       hadWitness = true;
       if (input.scriptSig.length) return { ok: false, error: 'WITNESS_MALLEATED', type };
-      const w = this.#verifyWitnessProgram(tx, inIndex, bare.version, bare.program, prevout.value, flags, false, allPrevouts);
+      const w = this.#verifyWitnessProgram(tx, inIndex, bare.version, bare.program, prevout.value, flags, false, allPrevouts, unified);
       if (w.ok !== true) return { ...w, type };
       witnessResult = w; // keeps e.g. the taproot `path`
       stack = [Uint8Array.of(1)]; // Core's stack.resize(1): one element, so the CLEANSTACK check below passes
@@ -830,7 +923,7 @@ export class ScriptInterpreter {
         hadWitness = true;
         // the scriptSig must be exactly one push of the redeem script
         if (input.scriptSig !== bytesToHex(pushEncode(redeem))) return { ok: false, error: 'WITNESS_MALLEATED_P2SH', type };
-        const w = this.#verifyWitnessProgram(tx, inIndex, wrapped.version, wrapped.program, prevout.value, flags, true, allPrevouts);
+        const w = this.#verifyWitnessProgram(tx, inIndex, wrapped.version, wrapped.program, prevout.value, flags, true, allPrevouts, unified);
         if (w.ok !== true) return { ...w, type };
         witnessResult = w;
         stack = [Uint8Array.of(1)];
