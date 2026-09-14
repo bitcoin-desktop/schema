@@ -774,6 +774,9 @@ export class ScriptInterpreter {
       if (!allPrevouts) return { ok: null, reason: 'taproot needs every input prevout resolved' };
       return this.#verifyTaproot(tx, inIndex, allPrevouts, flags, unified);
     }
+    // BIP 431 pay-to-anchor: Core accepts OP_1 <0x4e73> with an empty witness
+    // outright, bare (not P2SH-wrapped), even under DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM.
+    if (version === 1 && programHex === '4e73' && !isP2SH && witness.length === 0) return { ok: true, path: 'anchor' };
     if (flags?.has('DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM')) return { ok: false, error: 'DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM' };
     // Core returns success here (future soft-fork compatibility); we decline
     // to vouch for rules we do not know rather than claim they passed.

@@ -1,0 +1,43 @@
+{
+ "comment": "Real txbt4 (Bitcoin Knots BLAKE2b testnet4) pay-to-anchor spends (BIP 431, OP_1 <0x4e73>): the anchor input has an empty witness and is valid by consensus as an anyone-can-spend witness program; the other input is an ordinary taproot key-path spend",
+ "spends": [
+  {
+   "height": 150870,
+   "txid": "22b0cccabc4c247d6b81d371a2e61c4536cb772b035a2c8ecb203528a7df1f0d",
+   "hex": "0300000000010257137f7a9bb71bfae70d56e2d0cb26304699d9f2c000043697b61e37dd50ef880100000000fdffffff8dcfcd7d061a77b791d9caa196d6ace9d0fb08ef643184d21031148145b0791c0000000000fdffffff01a203000000000000225120d67f03aa5f041232c4795d38db8cbb10f11abac857320342d47b8db752bc11690001408af2008f87d766f3b7607f25f11dc56d7160618b004a7c6f564ade8944f3f27132ec17f0d697fe601f97d5d66a0966148efac13b80a532793092bc5125319cf600000000",
+   "prevouts": [
+    {
+     "value": 240,
+     "scriptPubKey": "51024e73",
+     "type": "anchor",
+     "address": "tb1pfees9rn5nz"
+    },
+    {
+     "value": 1050,
+     "scriptPubKey": "5120425234aa84d17bf59beff833cb9c2ddf7b433df2c5a29e266be002095ab838b5",
+     "type": "witness_v1_taproot",
+     "address": "tb1pgffrf25y69altxl0lqeuh8pdmaa5x00jck3fufntuqpqjk4c8z6sdvfwgw"
+    }
+   ]
+  },
+  {
+   "height": 150871,
+   "txid": "e6c52e54241dc0b9e6132ab6ee6bfc729395a9fa5247c654a764df279ef6be7e",
+   "hex": "03000000000102258e6ea66e67b037e604dd816472e04cf3681df6c8880e3aed2a5c07c757cfff0100000000fdffffff62900bf162d004b72bd26690d001e92b279abbdce8a47a3dc905b4227f48935b0100000000fdffffff01a2030000000000002251206738fd8599ed40d881faec7f35c8a0c7e69f40b7c6bafa6bfaf808fc43283e5b0001400d03758c4c6c430cacbcf4071a00fd38311e18a8bdd122281694bd0d7bb32eaa0d5778beea172ae3aa1e3344202762cd05c48cb71515b798633fb355808147e800000000",
+   "prevouts": [
+    {
+     "value": 240,
+     "scriptPubKey": "51024e73",
+     "type": "anchor",
+     "address": "tb1pfees9rn5nz"
+    },
+    {
+     "value": 1050,
+     "scriptPubKey": "5120425234aa84d17bf59beff833cb9c2ddf7b433df2c5a29e266be002095ab838b5",
+     "type": "witness_v1_taproot",
+     "address": "tb1pgffrf25y69altxl0lqeuh8pdmaa5x00jck3fufntuqpqjk4c8z6sdvfwgw"
+    }
+   ]
+  }
+ ]
+}

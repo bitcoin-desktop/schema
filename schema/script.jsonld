@@ -784,6 +784,19 @@
           }
         },
         {
+          "name": "anchor",
+          "comment": "Pay-to-anchor (BIP 431): OP_1 <0x4e73>, a 2-byte witness v1 program spendable by anyone with an empty witness; the ephemeral anchor of v3 transaction packages. Bech32m 'bc1pfeessrawgf'. Standard since Core 28.",
+          "special": "anchor",
+          "bip": [
+            431
+          ],
+          "addressEncoding": {
+            "encoding": "bech32m",
+            "witnessVersion": 1,
+            "payload": "push:0"
+          }
+        },
+        {
           "name": "multisig",
           "comment": "Bare m-of-n multisig: OP_m <pubkey>\u2026 OP_n OP_CHECKMULTISIG. No address form.",
           "special": "multisig"

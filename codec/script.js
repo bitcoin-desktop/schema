@@ -143,6 +143,8 @@ export class ScriptEngine {
         const len = ops[1].data.length / 2;
         return v >= 0x52 && v <= 0x60 && len >= 2 && len <= 40;
       }
+      case 'anchor': // BIP 431: exactly OP_1 PUSH2 0x4e73
+        return ops.length === 2 && ops[0].name === 'OP_1' && ops[1].code === 2 && ops[1].data === '4e73';
       case 'fallback':
         return true;
       default:
