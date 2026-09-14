@@ -295,7 +295,7 @@ export class ScriptInterpreter {
   // BIP 341 signature message. Single SHA-256 hashing throughout (not double),
   // wrapped in the TapSighash tag. Commits to every input's amount AND
   // scriptPubKey — hence `prevouts` is the full per-input array.
-  sighashTaproot(tx, inIndex, prevouts, hashType, { annex = null, leafHash = null } = {}) {
+  sighashTaproot(tx, inIndex, prevouts, hashType, { annex = null, leafHash = null, codeSepPos = 0xffffffff } = {}) {
     if (![0x00, 0x01, 0x02, 0x03, 0x81, 0x82, 0x83].includes(hashType)) fail('invalid taproot sighash type');
     const anyone = hashType & 0x80;
     const base = hashType & 0x03; // 0 = DEFAULT (ALL semantics)
@@ -339,7 +339,7 @@ export class ScriptInterpreter {
       if (inIndex >= tx.outputs.length) fail('sighash single without matching output');
       parts.push(sha256(this.codec.encode('TransactionOutput', tx.outputs[inIndex])));
     }
-    if (leafHash) parts.push(leafHash, u8(0x00), u32(0xffffffff));
+    if (leafHash) parts.push(leafHash, u8(0x00), u32(codeSepPos));
     return taggedHash('TapSighash', cat(parts));
   }
 
@@ -415,9 +415,10 @@ export class ScriptInterpreter {
       if (hashType === 0x00) fail('explicit SIGHASH_DEFAULT in 65-byte signature');
       sig = sigBytes.subarray(0, 64);
     } else if (sigBytes.length !== 64) fail('bad schnorr signature size');
+    const tail = { annex: ctx.annex, leafHash: ctx.leafHash, codeSepPos: ctx.codeSepPos ?? 0xffffffff };
     const msg = (ctx.unified && (hashType & SIGHASH_UNIFIED))
-      ? this.sighashUnified(ctx.tx, ctx.inIndex, ctx.prevouts, hashType, 3, { annex: ctx.annex, leafHash: ctx.leafHash })
-      : this.sighashTaproot(ctx.tx, ctx.inIndex, ctx.prevouts, hashType, { annex: ctx.annex, leafHash: ctx.leafHash });
+      ? this.sighashUnified(ctx.tx, ctx.inIndex, ctx.prevouts, hashType, 3, tail)
+      : this.sighashTaproot(ctx.tx, ctx.inIndex, ctx.prevouts, hashType, tail);
     if (!verifySchnorr(msg, sig, pubBytes)) fail('invalid schnorr signature');
     return true;
   }
@@ -484,6 +485,7 @@ export class ScriptInterpreter {
       OP_CODESEPARATOR: (s, ctx, exec, op) => {
         if (isLegacy(ctx.sigVersion) && ctx.flags?.has('CONST_SCRIPTCODE')) fail('OP_CODESEPARATOR under CONST_SCRIPTCODE');
         ctx.codeSepOffset = op.at + 1;
+        ctx.codeSepPos = ctx.opPos;
       },
       OP_IF: (s, ctx, exec, _, executing) => {
         let f = false;
@@ -684,6 +686,7 @@ export class ScriptInterpreter {
       ctx.alt = ctx.alt ?? [];
       ctx.scriptCode = ctx.scriptCode ?? scriptHex;
       ctx.codeSepOffset = 0;          // bytes before the last executed OP_CODESEPARATOR; reset per script run
+      ctx.codeSepPos = 0xffffffff;    // BIP 342: opcode position of the last executed OP_CODESEPARATOR, none yet
       this.requireMinimalNum = !!ctx.flags?.has('MINIMALDATA'); // for the shared num() helper
 
       const ops = this.scriptEngine.parse(scriptHex);
@@ -695,9 +698,10 @@ export class ScriptInterpreter {
         }
       }
       const exec = [];
-      let opCount = 0;
+      let opCount = 0, opPos = 0;
       for (const op of ops) {
         if (op.error) fail(op.error);
+        ctx.opPos = opPos++; // Core's opcode_pos: every opcode read counts, pushes included
         const executing = exec.every(Boolean);
         if (op.data != null) {
           if (op.data.length / 2 > this.limits.maxScriptElementSize) fail('push too large');

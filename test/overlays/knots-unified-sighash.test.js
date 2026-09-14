@@ -9,7 +9,8 @@ import { readFile } from 'node:fs/promises';
 import { createKernel } from '../../codec/kernel.js';
 import { knotsBlake2b } from '../../codec/overlays/knots-blake2b.js';
 import { compactSize, SIGHASH_UNIFIED } from '../../codec/interpreter.js';
-import { taggedHash, hexToBytes, bytesToHex } from '../../codec/hash.js';
+import { taggedHash, sha256, hexToBytes, bytesToHex } from '../../codec/hash.js';
+import { publicKeyFromPrivate, tapOutputKey, checkTapTweak, N } from '../../codec/secp256k1.js';
 
 const root = new URL('../..', import.meta.url);
 const load = async (p) => JSON.parse(await readFile(new URL(p, root), 'utf8'));
@@ -92,4 +93,50 @@ test('block rule: the overlay activates the unified sighash at the fork height',
   assert.equal(scripts(k.blocks.validateBlockContext(block, { height: k.params.blake2bHeight - 1, utxo: new Map(utxo), mtp })), false);
   // and on plain testnet4 there is no such parameter
   assert.equal(scripts(base.blocks.validateBlockContext(block, { height: blockVector.height, utxo: new Map(utxo), mtp })), false);
+});
+
+// BIP-340 signing on the engine's verify-only curve, enough for a test fixture.
+const big = (b) => b.reduce((a, x) => (a << 8n) | BigInt(x), 0n);
+const bytes32 = (n) => { const out = new Uint8Array(32); for (let i = 31; i >= 0; i--) { out[i] = Number(n & 0xffn); n >>= 8n; } return out; };
+const cat = (...a) => { const out = new Uint8Array(a.reduce((s, x) => s + x.length, 0)); let p = 0; for (const x of a) { out.set(x, p); p += x.length; } return out; };
+function schnorrSign(msg32, priv) {
+  let d = big(priv);
+  const P = publicKeyFromPrivate(bytes32(d));
+  if (P[0] === 0x03) d = N - d;
+  const px = P.slice(1);
+  const t = bytes32(d ^ big(taggedHash('BIP0340/aux', new Uint8Array(32))));
+  let k = big(taggedHash('BIP0340/nonce', cat(t, px, msg32))) % N;
+  const R = publicKeyFromPrivate(bytes32(k));
+  if (R[0] === 0x03) k = N - k;
+  const e = big(taggedHash('BIP0340/challenge', cat(R.slice(1), px, msg32))) % N;
+  return cat(R.slice(1), bytes32((k + e * d) % N));
+}
+
+test('tapscript: the last executed OP_CODESEPARATOR position is committed, BIP 341 and unified', () => {
+  const priv = sha256(new TextEncoder().encode('codeseparator test key'));
+  const xonly = publicKeyFromPrivate(priv).slice(1);
+  const x = bytesToHex(xonly);
+  // <x> CHECKSIGVERIFY CODESEPARATOR <x> CHECKSIG : opcode positions 0..4, the separator at 2
+  const script = hexToBytes(`20${x}adab20${x}ac`);
+  const leafHash = taggedHash('TapLeaf', Uint8Array.of(0xc0), compactSize(script.length), script);
+  const q = tapOutputKey(xonly, leafHash);
+  const parity = checkTapTweak(xonly, leafHash, q, 0) ? 0 : 1;
+  const control = bytesToHex(cat(Uint8Array.of(0xc0 | parity), xonly));
+  const spk = '5120' + bytesToHex(q);
+  const prevouts = [{ value: 2000, scriptPubKey: spk }];
+  const tx = { version: 2, lockTime: 0, inputs: [{ prevout: { txid: 'aa'.repeat(32), vout: 0 }, scriptSig: '', sequence: 0xffffffff }], outputs: [{ value: 1000, scriptPubKey: spk }], witness: [[]] };
+  const cases = [
+    { name: 'BIP 341', hashType: 0x01, unified: false, msg: (pos) => k.interpreter.sighashTaproot(tx, 0, prevouts, 0x01, { leafHash, codeSepPos: pos }) },
+    { name: 'unified', hashType: 0x21, unified: true, msg: (pos) => k.interpreter.sighashUnified(tx, 0, prevouts, 0x21, 3, { leafHash, codeSepPos: pos }) },
+  ];
+  for (const c of cases) {
+    const sig = (pos) => bytesToHex(cat(schnorrSign(c.msg(pos), priv), Uint8Array.of(c.hashType)));
+    const witness = (sig2) => [sig2, sig(0xffffffff), bytesToHex(script), control]; // stack bottom-up: sig2 for the CHECKSIG after the separator, sig1 on top
+    tx.witness[0] = witness(sig(2));
+    const v = k.interpreter.verifyInput(tx, 0, prevouts[0], prevouts, null, { unifiedSighash: c.unified });
+    assert.equal(v.ok, true, `${c.name}: ${v.error}`);
+    assert.equal(v.path, 'script');
+    tx.witness[0] = witness(sig(0xffffffff)); // second signature ignoring the separator: must fail
+    assert.equal(k.interpreter.verifyInput(tx, 0, prevouts[0], prevouts, null, { unifiedSighash: c.unified }).ok, false, `${c.name} position not committed`);
+  }
 });
