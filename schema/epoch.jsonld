@@ -1,0 +1,136 @@
+{
+  "@context": "../context.jsonld",
+  "@graph": [
+    {
+      "@id": "btc:epoch",
+      "@type": "Module",
+      "label": "epoch",
+      "version": "0.0.1",
+      "comment": "A chain as consecutive epochs. Epoch n is blocks (2016(n-1), 2016n]; its package states the UTXO set at both ends (MuHash, and optionally hash_serialized_3) and carries what a verifier needs to check that one epoch from its blocks alone, with no UTXO set: which outputs it created are still unspent at its end (the hints) and the data of every older coin it spent (the side data). Epoch 1 starts at genesis, whose set is empty; the first package of a chain may instead start at a snapshot or fork height. Consecutive packages chain: each one's start is the previous one's end. Describes the format blaketestnode's lib/epoch.mjs writes.",
+      "layer": "context",
+      "seeAlso": "https://github.com/bitcoin-desktop/schema/issues/98"
+    },
+    {
+      "@id": "btc:EpochState",
+      "@type": "ContextStruct",
+      "module": "btc:epoch",
+      "label": "EpochState",
+      "comment": "The UTXO set at one end of an epoch: after the block at `height` is connected.",
+      "fields": [
+        { "property": "btc:height", "label": "height", "valueType": "u32", "comment": "Height of the last block connected." },
+        { "property": "btc:blockHash", "label": "hash", "valueType": "hash", "comment": "Hash of that block, display order." },
+        { "property": "btc:coins", "label": "coins", "valueType": "u32", "comment": "Number of unspent outputs in the set (OP_RETURN outputs are not coins)." },
+        { "property": "btc:muhash", "label": "muhash", "valueType": "hash", "comment": "The set's MuHash3072 digest as Bitcoin Core's gettxoutsetinfo muhash prints it: SHA256 of `value`'s 384 little-endian bytes, byte-reversed." },
+        { "property": "btc:muhashValue", "label": "value", "valueType": "hex", "comment": "The set's MuHash3072 value itself: a number mod 2^3072 - 1103717, as 384 little-endian bytes (768 hex). The next epoch carries on from it; the empty set is 1." },
+        { "property": "btc:hashSerialized3", "label": "hashSerialized3", "valueType": "hash", "optional": true, "comment": "The set's hash_serialized_3 as dumptxoutset prints it: the number an assumeUTXO snapshot at this height commits to." }
+      ]
+    },
+    {
+      "@id": "btc:EpochBlocks",
+      "@type": "ContextStruct",
+      "module": "btc:epoch",
+      "label": "EpochBlocks",
+      "comment": "How much chain the epoch covers.",
+      "fields": [
+        { "property": "btc:blockCount", "label": "count", "valueType": "u32", "comment": "Blocks in the epoch: end.height - start.height." },
+        { "property": "btc:txCount", "label": "txs", "valueType": "u32", "comment": "Transactions in those blocks, coinbases included." }
+      ]
+    },
+    {
+      "@id": "btc:EpochBuild",
+      "@type": "ContextStruct",
+      "module": "btc:epoch",
+      "label": "EpochBuild",
+      "comment": "What built the package. Informational: nothing in a package is trusted, a verifier recomputes it from the blocks.",
+      "fields": [
+        { "property": "btc:builtAt", "label": "at", "valueType": "string", "comment": "When, ISO 8601." },
+        { "property": "btc:builtBy", "label": "version", "valueType": "string", "comment": "The builder and its version." },
+        { "property": "btc:builtCommit", "label": "commit", "valueType": "string", "comment": "The builder's source commit." },
+        { "property": "btc:builtEngine", "label": "engine", "valueType": "string", "comment": "The version of this schema's engine the builder ran." },
+        { "property": "btc:builtScripts", "label": "scripts", "valueType": "bool", "comment": "Whether scripts were executed while building." }
+      ]
+    },
+    {
+      "@id": "btc:Epoch",
+      "@type": "ContextStruct",
+      "module": "btc:epoch",
+      "label": "Epoch",
+      "comment": "One epoch package. The claim it makes is end.value == start.value x (product of the coins it created) / (product of the older coins it spent), mod 2^3072 - 1103717; checking that needs the epoch's blocks and nothing else.",
+      "fields": [
+        { "property": "btc:networkAlias", "label": "network", "valueType": "string", "comment": "The record's short id for the chain (btc, tbtc4, tbtc5, txbt4, ...)." },
+        { "property": "btc:chainId", "label": "chain", "valueType": "string", "comment": "The engine's chain id (btc:mainnet, btc:testnet5, ...)." },
+        { "property": "btc:epochStart", "label": "start", "valueType": "struct", "structType": "btc:EpochState", "comment": "The set before the epoch's first block." },
+        { "property": "btc:epochEnd", "label": "end", "valueType": "struct", "structType": "btc:EpochState", "comment": "The set after its last block." },
+        { "property": "btc:outputsCreated", "label": "outputs", "valueType": "u32", "comment": "Spendable outputs the epoch's blocks created, in block, transaction and output order." },
+        { "property": "btc:outputsUnspent", "label": "unspent", "valueType": "u32", "comment": "How many of those are still unspent at the end." },
+        { "property": "btc:hints", "label": "hints", "valueType": "string", "comment": "Base64 bitmap over the created outputs, least significant bit first within each byte: bit i set means created output i is unspent at the end. ceil(outputs/8) bytes; bits past `outputs` are zero." },
+        { "property": "btc:sideData", "label": "spent", "valueType": "array", "comment": "Every coin created before the epoch and spent in it, once each: [\"txid:vout\", height, coinbase (0|1), value (satoshis), scriptPubKey hex]. Plays the UTXO set when the epoch is verified." },
+        { "property": "btc:epochBlocks", "label": "blocks", "valueType": "struct", "structType": "btc:EpochBlocks" },
+        { "property": "btc:epochBuild", "label": "built", "valueType": "struct", "structType": "btc:EpochBuild", "optional": true }
+      ]
+    },
+    {
+      "@id": "btc:EpochIndexEntry",
+      "@type": "ContextStruct",
+      "module": "btc:epoch",
+      "label": "EpochIndexEntry",
+      "comment": "One package as an index lists it: enough to fetch it and check it is the one meant, and to chain it without opening it.",
+      "fields": [
+        { "property": "btc:startHeight", "label": "start", "valueType": "u32" },
+        { "property": "btc:endHeight", "label": "end", "valueType": "u32" },
+        { "property": "btc:startHash", "label": "startHash", "valueType": "hash" },
+        { "property": "btc:endHash", "label": "endHash", "valueType": "hash" },
+        { "property": "btc:startMuhash", "label": "startMuhash", "valueType": "hash" },
+        { "property": "btc:endMuhash", "label": "endMuhash", "valueType": "hash" },
+        { "property": "btc:blockCount", "label": "blocks", "valueType": "u32" },
+        { "property": "btc:txCount", "label": "txs", "valueType": "u32" },
+        { "property": "btc:outputsCreated", "label": "outputs", "valueType": "u32" },
+        { "property": "btc:outputsUnspent", "label": "unspent", "valueType": "u32" },
+        { "property": "btc:spentOlder", "label": "spentOlder", "valueType": "u32", "comment": "Length of the package's side data." },
+        { "property": "btc:packageRef", "label": "package", "valueType": "array", "comment": "{path, bytes, sha256} of the package file: the package is named by its sha256." }
+      ]
+    },
+    {
+      "@id": "btc:EpochIndex",
+      "@type": "ContextStruct",
+      "module": "btc:epoch",
+      "label": "EpochIndex",
+      "comment": "One chain's packages in height order. A chain is its genesis (or the snapshot its first package starts from) plus these epochs.",
+      "fields": [
+        { "property": "btc:networkAlias", "label": "chain", "valueType": "string", "comment": "The record's short id for the chain." },
+        { "property": "btc:chainId", "label": "network", "valueType": "string", "comment": "The engine's chain id." },
+        { "property": "btc:epochs", "label": "epochs", "valueType": "array", "itemType": "btc:EpochIndexEntry" }
+      ]
+    },
+    {
+      "@id": "btc:EpochRules",
+      "@type": "RuleSet",
+      "module": "btc:epoch",
+      "label": "EpochRules",
+      "phase": "epoch",
+      "comment": "What one package must satisfy. All but epoch-product are checked from the package alone (codec/epoch.js); epoch-product needs the epoch's blocks.",
+      "rules": [
+        { "@id": "btc:rule-epoch-fields", "@type": "ValidationRule", "label": "fields", "errorCode": "epoch-bad-fields", "comment": "The package has every field btc:Epoch declares that is not optional, each of its declared type, nested structs included.", "check": "conforms(pkg, btc:Epoch)" },
+        { "@id": "btc:rule-epoch-span", "@type": "ValidationRule", "label": "span", "errorCode": "epoch-bad-span", "comment": "The epoch ends after it starts, on a retarget boundary, and covers exactly the blocks between.", "check": "end.height > start.height && end.height % params.difficultyAdjustmentInterval == 0 && blocks.count == end.height - start.height" },
+        { "@id": "btc:rule-epoch-empty-genesis", "@type": "ValidationRule", "label": "empty-genesis", "errorCode": "epoch-bad-genesis-set", "comment": "An epoch starting at genesis starts from the empty set: the genesis coinbase is not a coin.", "check": "start.height == 0 implies (start.coins == 0 && muhashValue(start) == 1)" },
+        { "@id": "btc:rule-epoch-digest", "@type": "ValidationRule", "label": "digest", "errorCode": "epoch-bad-digest", "comment": "At both ends the digest is the digest of the value.", "check": "start.muhash == digest(start.value) && end.muhash == digest(end.value)" },
+        { "@id": "btc:rule-epoch-hints", "@type": "ValidationRule", "label": "hints", "errorCode": "epoch-bad-hints", "comment": "The bitmap has one bit per created output, no bits beyond, and as many set as `unspent`.", "check": "len(hints) == ceil(outputs/8) && noBitsPast(hints, outputs) && popcount(hints) == unspent" },
+        { "@id": "btc:rule-epoch-side-data", "@type": "ValidationRule", "label": "side-data", "errorCode": "epoch-bad-side-data", "comment": "Every side-data coin is well formed, created at or before the start, and listed once.", "check": "all(spent, r => r.height <= start.height) && unique(spent.map(r => r.key))" },
+        { "@id": "btc:rule-epoch-coin-count", "@type": "ValidationRule", "label": "coin-count", "errorCode": "epoch-bad-coin-count", "comment": "The set grows by what the epoch created and kept, and shrinks by the older coins it spent.", "check": "end.coins == start.coins + unspent - len(spent)" },
+        { "@id": "btc:rule-epoch-product", "@type": "ValidationRule", "label": "product", "errorCode": "epoch-bad-product", "comment": "The claim: replaying the epoch's blocks against the side data, multiplying in every created coin and dividing out every spent one (Core's TxOutSer serialization of each, hashed to a 3072-bit number), lands on the end value; every block passes the consensus rules on the way; every side-data coin is spent; and the hints are what the blocks say. Needs the blocks.", "check": "muhashValue(end) == muhashValue(start) * product(created) / product(spent) mod (2^3072 - 1103717)" }
+      ]
+    },
+    {
+      "@id": "btc:EpochChainRules",
+      "@type": "RuleSet",
+      "module": "btc:epoch",
+      "label": "EpochChainRules",
+      "phase": "epoch-chain",
+      "comment": "What consecutive packages must satisfy together.",
+      "rules": [
+        { "@id": "btc:rule-epoch-chain-network", "@type": "ValidationRule", "label": "same-network", "errorCode": "epoch-chain-network", "comment": "One chain: every package names the same network and chain id.", "check": "next.network == prev.network && next.chain == prev.chain" },
+        { "@id": "btc:rule-epoch-chain-link", "@type": "ValidationRule", "label": "link", "errorCode": "epoch-chain-link", "comment": "Each package starts where the previous one ended: the same height, block, coin count, digest and value (and hash_serialized_3 where both state it).", "check": "next.start == prev.end" }
+      ]
+    }
+  ]
+}

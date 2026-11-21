@@ -67,6 +67,7 @@
     "constValue": "btcs:constValue",
     "wireSize": "btcs:wireSize",
     "derivation": "btcs:derivation",
-    "optionalTrailing": "btcs:optionalTrailing"
+    "optionalTrailing": "btcs:optionalTrailing",
+    "optional": "btcs:optional"
   }
 }
