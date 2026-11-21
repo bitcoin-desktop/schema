@@ -60,7 +60,7 @@ export class EpochChecker {
       switch (rule['@id']) {
         case 'btc:rule-epoch-span':
           if (e.height <= s.height) return `ends at ${e.height}, not after its start ${s.height}`;
-          if (e.height % this.interval) return `ends at ${e.height}, not on a ${this.interval}-block boundary`;
+          if ((e.height + 1) % this.interval) return `ends at ${e.height}, not on the last block of a ${this.interval}-block retarget period`;
           return pkg.blocks.count === e.height - s.height ? null : `blocks.count ${pkg.blocks.count} is not ${e.height - s.height}`;
         case 'btc:rule-epoch-empty-genesis':
           return s.height !== 0 || (s.coins === 0 && s.value === EMPTY_SET) ? null : 'an epoch from genesis starts from the empty set (0 coins, value 1)';
