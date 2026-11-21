@@ -49,6 +49,14 @@ function bech32Encode(hrp, witnessVersion, program, constant) {
   return hrp + '1' + [...data, ...checksum].map((d) => B32[d]).join('');
 }
 
+// Core's MAX_SCRIPT_SIZE (script/script.h): also the declared btc:scriptLimits maxScriptSize.
+export const MAX_SCRIPT_SIZE = 10000;
+
+// CScript::IsUnspendable: an output that can never be spent, so it never enters the UTXO set (CCoinsViewCache::AddCoin
+// returns early): its scriptPubKey starts with OP_RETURN, or is longer than MAX_SCRIPT_SIZE bytes.
+export const isUnspendable = (scriptPubKeyHex, maxScriptSize = MAX_SCRIPT_SIZE) =>
+  scriptPubKeyHex.startsWith('6a') || scriptPubKeyHex.length / 2 > maxScriptSize;
+
 export class ScriptEngine {
   constructor(opcodeEnum, scriptTypeEnum, params) {
     this.params = params;
