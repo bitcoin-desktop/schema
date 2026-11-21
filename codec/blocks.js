@@ -12,7 +12,7 @@
 // Out of scope, deliberately: witness/signature script execution.
 
 import { dsha256, bytesToHex, hexToBytes } from './hash.js';
-import { ScriptEngine } from './script.js';
+import { ScriptEngine, isUnspendable, MAX_SCRIPT_SIZE } from './script.js';
 import { ScriptInterpreter } from './interpreter.js';
 
 const NULL_TXID = '0'.repeat(64);
@@ -30,6 +30,7 @@ export class BlockEngine {
     this.ruleSets = ruleSets; // {transaction, block, blockContext}
     this.scriptEngine = scriptEngine; // needed by the sigop rule
     this.interpreter = interpreter;   // needed by the scripts rule
+    this.maxScriptSize = interpreter?.limits?.maxScriptSize ?? MAX_SCRIPT_SIZE; // which outputs are coins (isUnspendable)
 
     const sumOut = (tx) => tx.outputs.reduce((s, o) => s + o.value, 0);
 
@@ -342,7 +343,7 @@ export class BlockEngine {
         }
       }
       tx.outputs.forEach((output, vout) => {
-        if (!output.scriptPubKey.startsWith('6a')) {
+        if (!isUnspendable(output.scriptPubKey, this.maxScriptSize)) {
           createdHere.set(`${txid}:${vout}`, { output, coinbase: i === 0, height });
         }
       });
@@ -370,7 +371,7 @@ export class BlockEngine {
       }
       const txid = this.codec.txid(tx);
       tx.outputs.forEach((output, vout) => {
-        if (!output.scriptPubKey.startsWith('6a')) { // unspendable: not a coin
+        if (!isUnspendable(output.scriptPubKey, this.maxScriptSize)) { // unspendable (OP_RETURN, or over MAX_SCRIPT_SIZE): not a coin, as in Core
           utxo.set(`${txid}:${vout}`, {
             outpoint: { txid, vout }, output, height, coinbase: i === 0,
           });
